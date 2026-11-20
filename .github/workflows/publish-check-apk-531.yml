@@ -1,0 +1,30 @@
+name: Publish check APK 531
+
+on:
+  push:
+    branches: [release/check-apk-531]
+
+permissions:
+  actions: read
+  contents: write
+
+jobs:
+  publish:
+    runs-on: ubuntu-latest
+    env:
+      GH_TOKEN: ${{ github.token }}
+      GH_REPO: ${{ github.repository }}
+    steps:
+      - name: Verify and publish the existing APK
+        shell: bash
+        run: |
+          set -euo pipefail
+          gh api "repos/$GH_REPO/actions/artifacts/14624463986/zip" > artifact.zip
+          echo "cc79e7deaf075e4f7c8f8037c65b76552c8a5ba416a710a2434212607ea613ad  artifact.zip" | sha256sum -c
+          unzip -p artifact.zip fuguang-lueying-531.apk > fuguang-lueying-531.apk
+          test -s fuguang-lueying-531.apk
+          unzip -tq fuguang-lueying-531.apk
+          gh release create app-build-531 fuguang-lueying-531.apk \
+            --target d7d32673cbc7c462bc7f80de53be0771c84c7cd3 --prerelease \
+            --title "浮光掠影 App 第 531 版" \
+            --notes "沿用 check 分支通过编译的 APK。助理设置的聊天模型改用两页选择、添加供应商、底部弹层整屏显示并跟随键盘。构建记录：https://github.com/dhhd1426-ops/Amor/actions/runs/44727211777"
