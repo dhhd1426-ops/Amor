@@ -317,6 +317,44 @@ button:disabled{opacity:.4;pointer-events:none}
   *,*::before,*::after{transition-duration:1ms!important;animation:none!important}
   .ri,.cardwrap,.pane,.view{transform:none!important}
 }
+[hidden]{display:none!important}
+.rail{display:none}
+.pg .main{width:100%}
+.bar{margin-left:10px;margin-right:10px}
+.bar #importBtn{display:none}
+.bar .bar-title{font-size:16px;font-weight:600}
+#moreBtn{margin-left:auto}
+.bookline,.pane{padding-inline:19px}
+.bookline .bt h1{font-size:21px}
+.bookline .bs{font-size:12px;margin:4px 0 0}
+.tabs{padding:5px 19px 10px}
+.seg{background:transparent;border-radius:0;border-bottom:1px solid var(--line);height:44px;padding:0}
+.seg .knob{visibility:hidden}
+.seg button{background:none}
+.seg button[aria-selected=true]::after{content:'';position:absolute;height:2px;bottom:0;left:25%;right:25%;background:var(--accent);border-radius:2px}
+.bookline .run-tools{display:flex;gap:8px;align-items:center;justify-content:space-between;margin:4px 0}
+.bookline .run{background:none;flex:0 1 auto;width:auto;min-height:44px;padding:0 6px;justify-content:flex-start;margin:0;border-radius:9px}
+.bookline .runModel{min-height:44px;max-width:52%;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;padding:0 9px;background:var(--card);border-radius:9px;font-size:12.5px;color:var(--accent)}
+.bookline .runModel:disabled{opacity:.55}
+.main .hero-profile{position:relative;min-height:134px;padding:14px 16px;align-items:flex-end;overflow:hidden;border:1px solid var(--line);background:linear-gradient(110deg,var(--card) 38%,color-mix(in oklab,var(--accent) 17%,var(--card)))}
+.hero-profile .sq{position:absolute;right:20px;top:22px;width:74px;height:79px;transform:rotate(-8deg);background:transparent;border:1px solid color-mix(in oklab,var(--accent) 58%,transparent);color:var(--accent);opacity:.53;font:49px "Noto Serif CJK SC",serif;pointer-events:none}
+.hero-profile .person{max-width:calc(100% - 75px)}
+.hero-profile h2{font:600 30px/1.16 "Noto Serif CJK SC",serif;letter-spacing:.04em}
+.hero-profile .person-tools{display:flex;align-items:center;gap:4px;margin-top:3px}
+.hero-profile .person-tools button{min-height:44px;padding:0 7px;color:var(--accent);font-size:12px;border-radius:8px}
+.hero-profile .person-tools .add{min-width:44px;font-size:20px}
+.switch-person{min-height:44px;color:var(--accent);padding:0 8px;border-radius:8px}
+.tile{min-height:112px;border:1px solid var(--line);border-radius:15px}
+.tile:disabled{opacity:.8}
+.tile .unavailable{font-size:12px;color:var(--muted)}
+.sec h3{font-size:15px}
+.rrow{border-radius:10px;background:none;border-bottom:1px solid var(--line);margin:0}
+.sbody .directory,.sbody .choices{display:grid;gap:5px}
+.choice{display:block;width:100%;min-height:46px;padding:8px 12px;text-align:left;border-radius:12px;background:var(--card);color:var(--ink);font-size:14px}
+.choice small{display:block;color:var(--muted);margin-top:3px;font-size:12px}
+.choice[aria-pressed=true]{box-shadow:inset 2px 0 var(--accent)}
+.view .field-input{width:100%;height:44px;background:var(--card);border:1px solid var(--line);border-radius:10px;color:var(--ink);padding:0 10px;margin:4px 0 10px;font-size:16px}
+@media(max-width:350px){.bookline,.pane{padding-inline:13px}.tabs{padding-inline:13px}.tile{padding-inline:9px}.hero-profile .sq{right:13px;width:60px}.hero-profile .person{max-width:calc(100% - 60px)}}
 </style>
 </head>
 <body data-skin="dark">
@@ -328,7 +366,7 @@ button:disabled{opacity:.4;pointer-events:none}
   <div class="main">
     <div class="bar">
       <button class="ibtn" id="backBtn" aria-label="返回"><svg viewBox="0 0 24 24"><path d="M15 5l-7 7 7 7"/></svg></button>
-      <div style="flex:1"></div>
+      <strong class="bar-title">拆书</strong>
       <button class="chip-btn" id="importBtn"><svg viewBox="0 0 24 24"><path d="M12 5v14M5 12h14"/></svg>导入小说</button>
       <button class="ibtn" id="moreBtn" aria-label="更多"><svg viewBox="0 0 24 24"><circle cx="5" cy="12" r="1"/><circle cx="12" cy="12" r="1"/><circle cx="19" cy="12" r="1"/></svg></button>
     </div>
@@ -345,8 +383,9 @@ button:disabled{opacity:.4;pointer-events:none}
         <div class="bookline">
           <button class="bt" id="bookSw" aria-haspopup="dialog"><h1 id="bTitle"></h1><span class="badge" id="bBadge">示例</span><svg class="dn" viewBox="0 0 24 24"><path d="M7 10l5 5 5-5"/></svg><span class="bn" id="bCount"></span></button>
           <div class="bs" id="bStats"></div>
-          <div class="run-wrap" id="runWrap"><div>
-            <button class="run" id="runBtn"><span class="bar2" id="runBar"></span><svg class="star" viewBox="0 0 24 24"><path d="M12 2.5l2.1 6.4 6.4 2.1-6.4 2.1L12 19.5l-2.1-6.4L3.5 11l6.4-2.1z"/></svg><span class="lbl" id="runLbl">用模型分析本书</span></button>
+          <div class="run-wrap" id="runWrap"><div class="run-tools">
+            <button class="run" id="runBtn"><span class="bar2" id="runBar"></span><svg class="star" viewBox="0 0 24 24"><path d="M12 2.5l2.1 6.4 6.4 2.1-6.4 2.1L12 19.5l-2.1-6.4L3.5 11l6.4-2.1z"/></svg><span class="lbl" id="runLbl">分析本书</span></button>
+            <button class="runModel press" id="runModel" type="button" aria-haspopup="dialog" hidden></button>
           </div></div>
         </div>
         <div class="tabs">
@@ -608,7 +647,7 @@ let tab=0;
 
 const avHTML=id=>{const c=B.chars[id];return `<div class="av" style="--h:${c.h}">${esc(c.a)}</div>`};
 const relName=r=>r.g||B.chars[r.to].n;
-const ready=id=>!!B.chars&&(B.sample?B.analyzed>=Math.max(...B.chars[id].ch):!!B.chars[id].fx||!!B.done);
+const ready=id=>!!B.chars&&(B.sample?!!B.chars[id].fx:!!B.chars[id].fx||!!B.done);
 const srcBtn=(c,t='')=>`<button class="src-b press" data-ch="${c}"${t?` title="${esc(t)}"`:''}>第${cnNum(c)}${U()}</button>`;
 
 /* ================= 书架：存在本机 ================= */
@@ -664,18 +703,33 @@ const bookSub=b=>{
 $('#backBtn').onclick=()=>{ if(isOpen)return hideSheet(); if(NATIVE)CS.close(); };
 $('#bookSw').onclick=()=>openSheet({k:'books'},$('#bookSw'));
 $('#importBtn').onclick=()=>openSheet({k:'import'},$('#importBtn'));
-$('#moreBtn').onclick=()=>{ if(B)openSheet({k:'more'},$('#moreBtn')); };
+$('#moreBtn').onclick=()=>openSheet({k:B?'more':'import'},$('#moreBtn'));
+function directoryButton(){return '<button type="button" class="switch-person press" aria-haspopup="dialog">切换角色 ⌄</button>'}
+function directoryRows(query){
+  const term=query.trim().toLowerCase();
+  const rows=B.order.filter(id=>[B.chars[id].n,...(B.chars[id].al||[])].some(n=>n.toLowerCase().includes(term)))
+    .map(id=>`<button type="button" class="choice press" data-act="select-person" data-person="${esc(id)}" aria-pressed="${sel===id}">${esc(B.chars[id].n)}<small>${esc(B.chars[id].r||'')}</small></button>`);
+  if(B.world&&!term)rows.unshift('<button type="button" class="choice press" data-act="select-person" data-person="world">世界设定</button>');
+  return rows.join('')||'<p class="note">没有匹配的角色</p>';
+}
 
 /* 「⋯」：重新分析、删除这本（删除点两次） */
 let delArm=0;
 function moreHTML(){
   delArm=0;
   return `<div style="display:flex;flex-direction:column;gap:8px;padding:2px 0 18px">
+    <button class="btn2" data-act="show-import">导入小说</button>
     ${B.sample?'':`<button class="btn2" data-act="redo">重新分析</button>`}
     <button class="btn2" data-act="del" id="delBtn">删除这本书</button></div>`;
 }
 function moreAct(t){
   const a=t.dataset.act;
+  if(a==='show-import'){go({k:'import'});return true;}
+  if(a==='select-person'){const id=t.dataset.person;hideSheet();select(id);return true;}
+  if(a==='analysis-model'){
+    B._modelChoice=t.dataset.provider?{provider:t.dataset.provider,name:t.dataset.model}:null;
+    hideSheet();renderAnalysisModel(B);return true;
+  }
   if(a==='redo'){hideSheet();resetAnalysis(B);return true;}
   if(a==='del'){
     if(Date.now()-delArm>3000){delArm=Date.now();t.textContent='再点一次删除';t.classList.add('danger');
@@ -756,7 +810,7 @@ function openBook(b,instant){
 }
 function stats(){
   const b=B;
-  $('#bStats').textContent=[(b.wc/1e4).toFixed(1)+' 万字',b.chapters.length+' '+U(),b.order.length?b.order.length+' 人':null,b.done||b.sample&&b.analyzed>=b.chapters.length?'模型分析':'本地提取'].filter(Boolean).join(' · ');
+  $('#bStats').textContent=[(b.wc/1e4).toFixed(1)+' 万字',b.chapters.length+' '+U(),b.order.length?b.order.length+' 人':null,b.sample?'示例':b.done?'模型分析':'本地提取'].filter(Boolean).join(' · ');
 }
 function railItem(id){
   const el=document.createElement('button');el.className='ri';el.dataset.id=id;
@@ -807,28 +861,32 @@ function pickTarget(i){
 function renderCard(){
   tgI=0;
   const w=$('#cardwrap');
-  if(!B.chars||!sel){w.innerHTML='<div class="note">用模型分析后，这里会出现角色卡</div>';return;}
+  if(!B.chars||!sel){w.innerHTML='<div class="note">用模型分析后，这里会出现角色卡</div>'+directoryButton();return;}
   if(sel==='world'){
     w.innerHTML=`<div class="hero"><div class="sq" style="background:var(--card);color:var(--accent)">${GLOBE.replace('<svg','<svg width="26" height="26" fill="none" stroke="currentColor" stroke-width="1.5"')}</div><div><h2>世界</h2><p>${esc(B.world.sum)}</p></div></div>
-      ${B.world.items.map(([k,t,[c,q]])=>`<dl class="wcell"><dt>${esc(k)}</dt><dd>${esc(t)}</dd>${c?`<div class="srcs">${srcBtn(c,q)}</div>`:''}</dl>`).join('')}`;
+      ${directoryButton()}${B.world.items.map(([k,t,[c,q]])=>`<dl class="wcell"><dt>${esc(k)}</dt><dd>${esc(t)}</dd>${c?`<div class="srcs">${srcBtn(c,q)}</div>`:''}</dl>`).join('')}`;
     return;
   }
   const c=B.chars[sel],ok=ready(sel)&&c.fx;
   const tiles=[['basic','基础资料'],['build','外貌身形'],['bg','身份背景'],['pers','性格与行为']].map(([k,t])=>
-    `<button class="tile press${ok?'':' wait'}" data-tile="${k}" ${ok?'':'disabled'}>${ICON[k]}<b>${t}${CHEV.replace('chev','')}</b>${ok?`<p>${esc(tileText(c,k))}</p>`:'<div class="sk"><i></i><i></i></div>'}</button>`).join('');
+    `<button class="tile press${ok?'':' wait'}" data-tile="${k}" ${ok?'':'disabled'}>${ICON[k]}<b>${t}${CHEV.replace('chev','')}</b>${ok?`<p>${esc(tileText(c,k))}</p>`:'<p class="unavailable">'+(B._busy?'等待分析':'暂无资料')+'</p>'}</button>`).join('');
   const rels=ok&&(c.rels||[]).length?`<div class="targets" role="tablist">${c.rels.map((r,i)=>`<button class="tg" role="tab" data-tg="${i}" aria-selected="${i===0}">${r.g?GROUP:avHTML(r.to)}${esc(relName(r))}</button>`).join('')}</div><div class="tpanel" id="tpanel">${tpanel(c,0)}</div>`
     :(c.rel||[]).filter(([id])=>B.chars[id]).map(([id,t])=>`<button class="rrow press" data-goto="${id}">${avHTML(id)}<div class="rt"><b>${esc(B.chars[id].n)}<em>${esc(t)}</em></b></div>${CHEV}</button>`).join('');
-  w.innerHTML=`<div class="hero"><div class="sq" style="--h:${c.h}">${esc(c.a)}</div><div style="min-width:0"><h2>${esc(c.n)}<button class="add press" aria-label="添加标签">+</button></h2>
-      <p>${esc(c.r||'')}${c.r?' · ':''}出场 ${c.ch.length} ${U()}</p></div></div>
+  w.innerHTML=`<div class="hero hero-profile"><div class="sq" aria-hidden="true" style="--h:${c.h}">${esc(c.a)}</div><div class="person"><h2>${esc(c.n)}</h2>
+      <p>${esc(c.r||'')}${c.r?' · ':''}出场 ${c.ch.length} ${U()}</p>
+      <div class="person-tools">${directoryButton()}<button class="add press" aria-label="添加标签">+</button></div></div></div>
+    ${(B.tags?.[sel]||[]).length?`<div class="chips">${B.tags[sel].map(tag=>`<span>${esc(tag)}</span>`).join('')}</div>`:''}
+    <div class="sec"><h3>人物资料</h3></div>
     ${ok&&((c.al||[]).length||(c.ti||[]).length)?`<div class="chips">${(c.al||[]).map(a=>`<span>${esc(a)}</span>`).join('')}${(c.ti||[]).map(([t,by])=>`<span>${esc(t)}<small>${esc(by)}</small></span>`).join('')}</div>`:''}
     <div class="tiles">${tiles}</div>
     <div class="sec"><h3>${ok?'对待不同的人':'关系'}</h3></div>${rels}`;
-  if(!ok&&(B.done||B.sample&&B.analyzed>=B.chapters.length))w.querySelectorAll('.tile').forEach(t=>{t.classList.remove('wait');t.querySelector('.sk').outerHTML='<p>出场少，没有单独成卡</p>'});
+  if(!ok&&(B.done||B.sample&&B.analyzed>=B.chapters.length))w.querySelectorAll('.tile').forEach(t=>{t.classList.remove('wait');t.querySelector('.unavailable').textContent='出场少，暂无详细资料'});
 }
 $('#cardwrap').addEventListener('click',e=>{
-  const t=e.target.closest('[data-tile],[data-rel],[data-goto],[data-ch],[data-tg],.add');if(!t)return;
+  const t=e.target.closest('[data-tile],[data-rel],[data-goto],[data-ch],[data-tg],.add,.switch-person');if(!t)return;
   if(t.dataset.tg)return pickTarget(+t.dataset.tg);
-  if(t.classList.contains('add'))return toast('自定义标签下一版加');
+  if(t.classList.contains('switch-person'))return openSheet({k:'directory'},t);
+  if(t.classList.contains('add'))return openSheet({k:'tags'},t);
   if(t.dataset.tile)openSheet({k:'field',id:sel,f:t.dataset.tile},t);
   else if(t.dataset.rel)openSheet({k:'rel',id:sel,r:+t.dataset.rel},t);
   else if(t.dataset.goto)select(t.dataset.goto);
@@ -845,11 +903,11 @@ $('#cardwrap').addEventListener('click',e=>{
  */
 const sleep=ms=>new Promise(r=>setTimeout(r,ms));
 let reqN=0;const pending=new Map();
-function ask(system,user,max){
+function ask(b,system,user,max){
   return new Promise((res,rej)=>{
     if(!NATIVE)return rej(Object.assign(new Error('网页预览里不能调模型，请在 App 里分析'),{fatal:true}));
     const id='r'+(++reqN);pending.set(id,{res,rej});
-    try{CS.ask(id,system,user,max)}catch(e){pending.delete(id);rej(e)}
+    try{CS.ask(b._modelSession,id,system,user,max)}catch(e){pending.delete(id);rej(e)}
   });
 }
 function onReply(id,ok,text,fatal){const p=pending.get(id);if(!p)return;pending.delete(id);ok?p.res(text):p.rej(Object.assign(new Error(text),{fatal:!!fatal}))}
@@ -859,13 +917,18 @@ function parseJSON(t){
   const s=t.slice(a,b+1);
   try{return JSON.parse(s)}catch(e){try{return JSON.parse(s.replace(/,\s*([}\]])/g,'$1'))}catch(e2){return null}}
 }
-async function askJSON(b,system,user,max){
+async function askJSON(b,system,user,max,valid){
   let last;
   for(let k=0;k<3;k++){
     if(b._stop)throw Object.assign(new Error('stop'),{stop:true});
-    try{const o=parseJSON(await ask(system,user,max));if(o)return o;last=Object.assign(new Error('模型返回的 JSON 不完整'),{bad:true});}
-    catch(e){if(e.fatal)throw e;last=e;}
-    await sleep(1500*(k+1));
+    try{
+      const o=parseJSON(await ask(b,system,user,max));
+      if(b._stop)throw Object.assign(new Error('stop'),{stop:true});
+      if(o&&valid(o))return o;
+      last=new Error('模型返回的分析资料不完整');
+    }
+    catch(e){if(e.fatal||e.stop)throw e;last=e;}
+    if(k<2)await sleep(1500*(k+1));
   }
   throw last;
 }
@@ -1057,13 +1120,18 @@ function fixCard(b,k,o){
 function setProg(b){
   if(B!==b)return;
   const p=b.prog;
-  $('#runLbl').textContent=b._busy?`分析中 ${p.done}/${p.total}`:p.done?`继续分析 ${p.done}/${p.total}`:'用模型分析本书';
+  $('#runLbl').textContent=b._busy?`分析中 ${p.done}/${p.total}`:p.done?`继续分析 ${p.done}/${p.total}`:'分析本书';
   $('#runBar').style.transform=`scaleX(${p.total?p.done/p.total:0})`;
 }
 async function pool(items,n,fn,b){
-  let i=0;
-  const worker=async()=>{while(i<items.length&&!b._stop){const it=items[i++];await fn(it)}};
+  let i=0,failure=null;
+  const worker=async()=>{
+    while(i<items.length&&!b._stop&&!failure){
+      try{await fn(items[i++])}catch(error){failure=failure||error}
+    }
+  };
   await Promise.all(Array.from({length:Math.min(n,items.length)},worker));
+  if(failure)throw failure;
 }
 function picksForCards(b){
   const short=b.chapters.length<=3;
@@ -1079,16 +1147,22 @@ async function analyze(b){
   b.prog={done:Object.keys(raw.done).length+(raw.cardsDone?raw.cardsDone.length:0)+(b.world?1:0),total:est()};setProg(b);
   // 一、逐段抽取
   const todo=cks.map((ck,i)=>({...ck,key:ck.a+'-'+ck.b+'-'+i})).filter(ck=>!raw.done[ck.key]);
-  const run1=async(ck,depth=0)=>{
-    try{absorb(b,ck,await askJSON(b,SYS,p1(b,ck),6000))}
-    catch(e){
-      if(e.fatal||e.stop)throw e;
-      if(depth<2&&ck.text.length>3000){const h=ck.text.length>>1,cut=ck.text.indexOf('\n',h);const at=cut>0?cut:h;
-        await run1({...ck,text:ck.text.slice(0,at)},depth+1);await run1({...ck,text:ck.text.slice(at)},depth+1);return;}
+  const extract=async(ck,depth=0)=>{
+    try{
+      const out=await askJSON(b,SYS,p1(b,ck),6000,o=>Array.isArray(o.chapters)&&o.chapters.some(c=>c?.sum?.trim())&&Array.isArray(o.people));
+      return [[ck,out]];
+    }catch(e){
+      if(e.fatal||e.stop||depth>=2||ck.text.length<=3000)throw e;
+      const mid=ck.text.length>>1,line=ck.text.indexOf('\n',mid);
+      const at=line>mid&&line<ck.text.length-1?line:mid;
+      return [...await extract({...ck,text:ck.text.slice(0,at)},depth+1),...await extract({...ck,text:ck.text.slice(at)},depth+1)];
     }
-    if(depth===0){raw.done[ck.key]=1;b.prog.done++;b.prog.total=est();setProg(b);persist(b)}
   };
-  await pool(todo,3,run1,b);
+  await pool(todo,3,async ck=>{
+    const parts=await extract(ck);
+    for(const [part,out] of parts)absorb(b,part,out);
+    raw.done[ck.key]=1;b.prog.done++;b.prog.total=est();setProg(b);persist(b);
+  },b);
   if(b._stop)return;
   // 二、成卡
   skeleton(b);persist(b);
@@ -1097,18 +1171,16 @@ async function analyze(b){
   b.prog.total=est();setProg(b);
   const left=raw.cards.filter(k=>!raw.cardsDone.includes(k)&&raw.people[k]);
   await pool(left,3,async k=>{
-    try{fixCard(b,k,await askJSON(b,SYS,p2(b,k,material(b,k)),7000))}catch(e){if(e.fatal||e.stop)throw e}
+    fixCard(b,k,await askJSON(b,SYS,p2(b,k,material(b,k)),7000,o=>typeof o.r==='string'&&!!o.r.trim()));
     raw.cardsDone.push(k);b.prog.done++;setProg(b);persist(b);lightUp(b,k);
   },b);
   if(b._stop)return;
   // 三、世界
   if(!b.world){
-    try{
-      const notes={chapters:b.chapters.slice(0,60).map((c,i)=>({n:i+1,sum:c.sum||''})),world:cap(raw.world,40)};
-      const o=await askJSON(b,SYS,p3(b,notes),3000);
-      b.world={sum:String(o.sum||''),items:(o.items||[]).filter(x=>Array.isArray(x)&&x[0]&&x[1]).map(([k,t,src])=>{
-        const q=Array.isArray(src)?src[1]:'';const at=q?locate(b,q):0;return [k,t,at?[at,q]:[0,'']]})};
-    }catch(e){if(e.fatal||e.stop)throw e;b.world={sum:'',items:[]}}
+    const notes={chapters:b.chapters.slice(0,60).map((c,i)=>({n:i+1,sum:c.sum||''})),world:cap(raw.world,40)};
+    const o=await askJSON(b,SYS,p3(b,notes),3000,o=>typeof o.sum==='string'&&Array.isArray(o.items));
+    b.world={sum:o.sum,items:o.items.filter(x=>Array.isArray(x)&&x[0]&&x[1]).map(([k,t,src])=>{
+      const q=Array.isArray(src)?src[1]:'';const at=q?locate(b,q):0;return [k,t,at?[at,q]:[0,'']]})};
     if(!b.world.sum&&!b.world.items.length)b.world=null;
     b.prog.done++;
   }
@@ -1123,18 +1195,16 @@ function lightUp(b,k){
 }
 function resetAnalysis(b){
   if(b.sample)return;
-  b._stop=true;
-  setTimeout(()=>{
-    b.chars={};b.order=[];b.world=null;b.done=false;delete b.raw;b.prog={done:0,total:0};
-    b.chapters.forEach(c=>{delete c.sum;delete c.ev;c.cast=[]});
-    b._stop=false;b._busy=false;persist(b);if(B===b)openBook(b,true);
-  },300);
+  if(b._busy){toast('请先停止当前分析');return;}
+  b.chars={};b.order=[];b.world=null;b.done=false;delete b.raw;b.prog={done:0,total:0};
+  b.chapters.forEach(c=>{delete c.sum;delete c.ev;c.cast=[]});
+  b._stop=false;persist(b);if(B===b)openBook(b,true);
 }
 function runState(){
   const b=B,rw=$('#runWrap'),rb=$('#runBtn');
   const done=b.sample?b.analyzed>=b.chapters.length:!!b.done;
-  rw.classList.toggle('gone',done);rb.className='run';rb.disabled=false;
-  if(b.sample){$('#runLbl').textContent=b.analyzed?`继续分析 ${b.analyzed}/${b.chapters.length}`:'用模型分析本书';$('#runBar').style.transform=`scaleX(${b.analyzed/b.chapters.length})`;}
+  rw.classList.toggle('gone',done);rb.className='run';rb.disabled=false;renderAnalysisModel(b);
+  if(b.sample){$('#runLbl').textContent=b.analyzed?`继续分析 ${b.analyzed}/${b.chapters.length}`:'播放分析示例';$('#runBar').style.transform=`scaleX(${b.analyzed/b.chapters.length})`;}
   else{b.prog=b.prog||{done:0,total:0};setProg(b);}
 }
 async function finishRun(b){
@@ -1142,21 +1212,56 @@ async function finishRun(b){
   stats();
   $('#runLbl').textContent='完成';
   await wait(500);
+  if(B!==b)return;
   $('#runBtn').classList.add('done');
   await wait(200);
+  if(B!==b)return;
   $('#runWrap').classList.add('gone');
   openBook(b,true);
 }
+function analysisModels(){
+  if(!NATIVE)return {active:null,options:[]};
+  try{return JSON.parse(CS.models())}catch(e){return {active:null,options:[]}}
+}
+function renderAnalysisModel(b){
+  const button=$('#runModel');
+  button.hidden=b.sample||!NATIVE;
+  button.disabled=!!b._busy||!!b.done;
+  if(button.hidden)return;
+  const model=b._runModel||b._modelChoice||analysisModels().active;
+  button.textContent=(model?.name||'选择模型')+' ⌄';
+  button.setAttribute('aria-label','分析模型：'+(model?.name||'未配置'));
+}
+function modelChoices(){
+  const models=analysisModels(), selected=B._modelChoice;
+  return [{provider:'',name:'',label:'跟随当前助理',detail:models.active?.name||'未配置'},...models.options.map(m=>({...m,detail:m.label,label:m.name}))]
+    .map(m=>`<button type="button" class="choice press" data-act="analysis-model" data-provider="${esc(m.provider)}" data-model="${esc(m.name)}" aria-pressed="${(selected?.provider||'')===m.provider&&(selected?.name||'')===m.name}">${esc(m.label)}<small>${esc(m.detail)}</small></button>`).join('');
+}
+$('#runModel').onclick=()=>{if(!B._busy&&!B.sample)openSheet({k:'models'},$('#runModel'));};
 $('#runBtn').onclick=async()=>{
   const b=B,btn=$('#runBtn');
-  if(b._busy){b._stop=true;btn.classList.remove('err');$('#runLbl').textContent='停下了';return;}
+  if(b._busy){b._stop=true;btn.classList.remove('err');$('#runLbl').textContent='正在停止…';return;}
+  if(b.done)return;
   if(b.sample)return runSample(b);
-  b._busy=true;b._stop=false;btn.classList.remove('err');setProg(b);
-  try{await analyze(b);b._busy=false;if(b.done)finishRun(b);else setProg(b);}
-  catch(e){
+  if(!NATIVE){toast('请在 Amor App 中运行模型分析');return;}
+  let session;
+  try{
+    session=JSON.parse(CS.begin(b._modelChoice?.provider||'',b._modelChoice?.name||''));
+    if(!session.session)throw new Error(session.error||'无法启动分析');
+  }catch(e){toast(String(e.message||e).slice(0,100));return;}
+  b._modelSession=session.session;b._runModel=session;b._busy=true;b._stop=false;
+  btn.classList.remove('err');renderAnalysisModel(b);setProg(b);
+  try{
+    await analyze(b);
+    b._busy=false;
+    if(b.done){delete b._modelChoice;finishRun(b)}else setProg(b);
+  }catch(e){
     b._busy=false;b._stop=true;persist(b);
     if(B===b){setProg(b);if(!e.stop){btn.classList.add('err');$('#runLbl').textContent='没分析完 · 点这里接着来';}}
-    if(!e.stop)toast(String(e.message||e).slice(0,60));
+    if(!e.stop)toast(String(e.message||e).slice(0,100));
+  }finally{
+    CS.end(session.session);delete b._modelSession;delete b._runModel;
+    if(B===b)renderAnalysisModel(b);
   }
 };
 /* 示例书：资料是写好的，按章亮起来演示一遍 */
@@ -1236,12 +1341,15 @@ function title(v){
   if(v.k==='rel'){const r=B.chars[v.id].rels[v.r];return `${B.chars[v.id].n} → ${relName(r)}`}
   if(v.k==='ch')return `第${cnNum(v.i+1)}${U()}`;
   if(v.k==='more')return B?.title||'';
+  if(v.k==='models')return '选择分析模型';
+  if(v.k==='directory')return '角色目录';
+  if(v.k==='tags')return '添加标签';
 }
 function openSheet(v,op){
   stack=[v];opener=op;
   const body=$('#sbody');body.innerHTML='';body.appendChild(view(v));
   $('#sTitle').textContent=title(v);$('#sBack').classList.remove('on');
-  sheet.style.height=['import','books','more'].includes(v.k)?'auto':'';
+  sheet.style.height=['import','books','more','models','directory','tags'].includes(v.k)?'auto':'';
   sheet.classList.remove('closing','drag');sheet.style.transform='';sheet.setAttribute('aria-hidden','false');
   scrim.classList.remove('closing');void sheet.offsetWidth;
   sheet.classList.add('on');scrim.classList.add('on');isOpen=true;
@@ -1278,7 +1386,25 @@ document.addEventListener('keydown',e=>{if(e.key==='Escape'&&isOpen)hideSheet()}
 
 function view(v){
   const el=document.createElement('div');el.className='view';
-  if(v.k==='more'){
+  if(v.k==='models'||v.k==='directory'||v.k==='tags'){
+    el.style.position='static';
+    if(v.k==='models')el.innerHTML='<div class="choices">'+modelChoices()+'</div>';
+    if(v.k==='directory'){
+      el.innerHTML='<input class="field-input" type="search" placeholder="搜索角色" aria-label="搜索角色"><div class="directory"></div>';
+      const search=el.querySelector('input'),list=el.querySelector('.directory');
+      const update=()=>{list.innerHTML=directoryRows(search.value)};
+      search.addEventListener('input',update);update();
+    }
+    if(v.k==='tags'){
+      el.innerHTML='<form><input class="field-input" aria-label="新标签" placeholder="输入标签" maxlength="16" required><button class="choice press" type="submit">添加</button></form>';
+      el.querySelector('form').addEventListener('submit',e=>{
+        e.preventDefault();const tag=el.querySelector('input').value.trim();
+        if(!tag)return;
+        B.tags=B.tags||{};B.tags[sel]=[...new Set([...(B.tags[sel]||[]),tag])];persist(B);
+        hideSheet();renderCard();$('#cardwrap .add')?.focus({preventScroll:true});
+      });
+    }
+  }else if(v.k==='more'){
     el.style.position='static';
     el.innerHTML=moreHTML();
   }else if(v.k==='books'){

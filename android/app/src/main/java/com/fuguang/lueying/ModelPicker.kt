@@ -33,6 +33,7 @@ import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.focus.onFocusChanged
 import androidx.compose.ui.draw.alpha
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.ColorFilter
@@ -138,6 +139,7 @@ fun ModelPages(
     store: AssistantStore, more: Boolean, view: String, find: String,
     onFind: (String) -> Unit, onMore: (Boolean) -> Unit, onView: (String) -> Unit,
     onPick: (String, String) -> Unit, onSetup: (String?) -> Unit, modifier: Modifier = Modifier,
+    onSearchFocus: (Boolean) -> Unit = {},
 ) {
     AnimatedContent(
         targetState = more,
@@ -173,7 +175,7 @@ fun ModelPages(
                         Txt("所有模型", Page.ink, 16.sp, Modifier.align(Alignment.Center), weight = FontWeight.SemiBold)
                     }
                     Spacer(Modifier.height(10.dp))
-                    Box(Modifier.padding(start = 6.dp)) { ModelFind(find, onFind) }
+                    Box(Modifier.padding(start = 6.dp)) { ModelFind(find, onFind, Modifier.onFocusChanged { onSearchFocus(it.isFocused) }) }
                 }
                 Column(
                     Modifier.weight(1f, fill = false)
@@ -270,12 +272,12 @@ private fun ProviderList(store: AssistantStore, onGo: (String) -> Unit, onSetup:
 
 /** 顶上的搜索框（在第二页）。 */
 @Composable
-fun ModelFind(q: String, onChange: (String) -> Unit) {
+fun ModelFind(q: String, onChange: (String) -> Unit, modifier: Modifier = Modifier) {
     BasicTextField(
         q, onChange, singleLine = true,
         textStyle = TextStyle(fontFamily = Sans, color = Page.ink, fontSize = 14.5.sp),
         cursorBrush = SolidColor(Page.accent),
-        modifier = Modifier.fillMaxWidth(),
+        modifier = modifier.fillMaxWidth(),
         decorationBox = { inner ->
             Row(Modifier.fillMaxWidth().height(42.dp).background(veil(.06f), RoundedCornerShape(14.dp)).padding(horizontal = 12.dp), verticalAlignment = Alignment.CenterVertically) {
                 SvgIcon(magnifier, Page.muted, 16.dp)

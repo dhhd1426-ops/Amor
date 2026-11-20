@@ -128,6 +128,49 @@ s = R(s, "<h3>前后变化</h3>${r.att.map(", "${(r.att||[]).length?'<h3>前后�
 s = R(s, "      ${r.sc.length?`<h3>对白</h3>${r.sc.map(", "      ${(r.sc||[]).length?`<h3>对白</h3>${r.sc.map(")
 s = R(s, "  const rels=ok?`<div class=\"targets\" role=\"tablist\">${c.rels.map(", "  const rels=ok&&(c.rels||[]).length?`<div class=\"targets\" role=\"tablist\">${c.rels.map(")
 s = R(s, "<p>出场 ${c.ch.length} ${U()} · ${(ok?c.rels:(c.rel||[])).length} 个关系对象</p>", "<p>${esc(c.r||'')}${c.r?' · ':''}出场 ${c.ch.length} ${U()}</p>")
+# 手机角色页与分析模型入口，沿用已有抽屉和数据渲染。
+s = R(s, '</style>', open(os.path.join(HERE, 'page_layout.css')).read() + '</style>')
+s = R(s, '<div style="flex:1"></div>\n      <button class="chip-btn" id="importBtn">', '<strong class="bar-title">拆书</strong>\n      <button class="chip-btn" id="importBtn">')
+s = R(s, '<div class="run-wrap" id="runWrap"><div>', '<div class="run-wrap" id="runWrap"><div class="run-tools">')
+s = R(s, '<span class="lbl" id="runLbl">用模型分析本书</span></button>', '<span class="lbl" id="runLbl">分析本书</span></button>\n            <button class="runModel press" id="runModel" type="button" aria-haspopup="dialog" hidden></button>')
+s = R(s, "B.sample?B.analyzed>=Math.max(...B.chars[id].ch)", "B.sample?!!B.chars[id].fx")
+s = R(s, "b.done||b.sample&&b.analyzed>=b.chapters.length?'模型分析':'本地提取'", "b.sample?'示例':b.done?'模型分析':'本地提取'")
+s = R(s, "w.innerHTML='<div class=\"note\">用模型分析后，这里会出现角色卡</div>';", "w.innerHTML='<div class=\"note\">用模型分析后，这里会出现角色卡</div>'+directoryButton();")
+s = R(s, '${B.world.items.map(([k,t,[c,q]])=>', '${directoryButton()}${B.world.items.map(([k,t,[c,q]])=>')
+s = R(s, "'<div class=\"sk\"><i></i><i></i></div>'", "'<p class=\"unavailable\">'+(B._busy?'等待分析':'暂无资料')+'</p>'")
+s = R(s, "t.querySelector('.sk').outerHTML='<p>出场少，没有单独成卡</p>'", "t.querySelector('.unavailable').textContent='出场少，暂无详细资料'")
+a = s.index('  w.innerHTML=`<div class="hero"><div class="sq" style="--h:${c.h}')
+b = s.index('    ${ok&&',a)
+s = s[:a] + """  w.innerHTML=`<div class="hero hero-profile"><div class="sq" aria-hidden="true" style="--h:${c.h}">${esc(c.a)}</div><div class="person"><h2>${esc(c.n)}</h2>
+      <p>${esc(c.r||'')}${c.r?' · ':''}出场 ${c.ch.length} ${U()}</p>
+      <div class="person-tools">${directoryButton()}<button class="add press" aria-label="添加标签">+</button></div></div></div>
+    ${(B.tags?.[sel]||[]).length?`<div class="chips">${B.tags[sel].map(tag=>`<span>${esc(tag)}</span>`).join('')}</div>`:''}
+    <div class="sec"><h3>人物资料</h3></div>
+""" + s[b:]
+s = R(s, '[data-tile],[data-rel],[data-goto],[data-ch],[data-tg],.add', '[data-tile],[data-rel],[data-goto],[data-ch],[data-tg],.add,.switch-person')
+s = R(s, "  if(t.classList.contains('add'))return toast('自定义标签下一版加');", "  if(t.classList.contains('switch-person'))return openSheet({k:'directory'},t);\n  if(t.classList.contains('add'))return openSheet({k:'tags'},t);")
+s = R(s, "  if(v.k==='more')return B?.title||'';", "  if(v.k==='more')return B?.title||'';\n  if(v.k==='models')return '选择分析模型';\n  if(v.k==='directory')return '角色目录';\n  if(v.k==='tags')return '添加标签';")
+s = R(s, "['import','books','more'].includes(v.k)", "['import','books','more','models','directory','tags'].includes(v.k)")
+s = R(s, "  if(v.k==='more'){\n    el.style.position='static';", """  if(v.k==='models'||v.k==='directory'||v.k==='tags'){
+    el.style.position='static';
+    if(v.k==='models')el.innerHTML='<div class="choices">'+modelChoices()+'</div>';
+    if(v.k==='directory'){
+      el.innerHTML='<input class="field-input" type="search" placeholder="搜索角色" aria-label="搜索角色"><div class="directory"></div>';
+      const search=el.querySelector('input'),list=el.querySelector('.directory');
+      const update=()=>{list.innerHTML=directoryRows(search.value)};
+      search.addEventListener('input',update);update();
+    }
+    if(v.k==='tags'){
+      el.innerHTML='<form><input class="field-input" aria-label="新标签" placeholder="输入标签" maxlength="16" required><button class="choice press" type="submit">添加</button></form>';
+      el.querySelector('form').addEventListener('submit',e=>{
+        e.preventDefault();const tag=el.querySelector('input').value.trim();
+        if(!tag)return;
+        B.tags=B.tags||{};B.tags[sel]=[...new Set([...(B.tags[sel]||[]),tag])];persist(B);
+        hideSheet();renderCard();$('#cardwrap .add')?.focus({preventScroll:true});
+      });
+    }
+  }else if(v.k==='more'){
+    el.style.position='static';""")
 for bad in ['#plus', '#csSub', 'mineRow(', "'#send'", 'picks.', 'env(safe-area']:
     assert bad not in s, (bad, s[s.find(bad)-200:s.find(bad)+80])
 assert not re.search(r'(?<![.\w])push\(', s)

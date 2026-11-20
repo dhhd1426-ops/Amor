@@ -51,18 +51,33 @@ const bookSub=b=>{
 $('#backBtn').onclick=()=>{ if(isOpen)return hideSheet(); if(NATIVE)CS.close(); };
 $('#bookSw').onclick=()=>openSheet({k:'books'},$('#bookSw'));
 $('#importBtn').onclick=()=>openSheet({k:'import'},$('#importBtn'));
-$('#moreBtn').onclick=()=>{ if(B)openSheet({k:'more'},$('#moreBtn')); };
+$('#moreBtn').onclick=()=>openSheet({k:B?'more':'import'},$('#moreBtn'));
+function directoryButton(){return '<button type="button" class="switch-person press" aria-haspopup="dialog">切换角色 ⌄</button>'}
+function directoryRows(query){
+  const term=query.trim().toLowerCase();
+  const rows=B.order.filter(id=>[B.chars[id].n,...(B.chars[id].al||[])].some(n=>n.toLowerCase().includes(term)))
+    .map(id=>`<button type="button" class="choice press" data-act="select-person" data-person="${esc(id)}" aria-pressed="${sel===id}">${esc(B.chars[id].n)}<small>${esc(B.chars[id].r||'')}</small></button>`);
+  if(B.world&&!term)rows.unshift('<button type="button" class="choice press" data-act="select-person" data-person="world">世界设定</button>');
+  return rows.join('')||'<p class="note">没有匹配的角色</p>';
+}
 
 /* 「⋯」：重新分析、删除这本（删除点两次） */
 let delArm=0;
 function moreHTML(){
   delArm=0;
   return `<div style="display:flex;flex-direction:column;gap:8px;padding:2px 0 18px">
+    <button class="btn2" data-act="show-import">导入小说</button>
     ${B.sample?'':`<button class="btn2" data-act="redo">重新分析</button>`}
     <button class="btn2" data-act="del" id="delBtn">删除这本书</button></div>`;
 }
 function moreAct(t){
   const a=t.dataset.act;
+  if(a==='show-import'){go({k:'import'});return true;}
+  if(a==='select-person'){const id=t.dataset.person;hideSheet();select(id);return true;}
+  if(a==='analysis-model'){
+    B._modelChoice=t.dataset.provider?{provider:t.dataset.provider,name:t.dataset.model}:null;
+    hideSheet();renderAnalysisModel(B);return true;
+  }
   if(a==='redo'){hideSheet();resetAnalysis(B);return true;}
   if(a==='del'){
     if(Date.now()-delArm>3000){delArm=Date.now();t.textContent='再点一次删除';t.classList.add('danger');

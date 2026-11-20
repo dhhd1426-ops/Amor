@@ -25,6 +25,8 @@ import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.imePadding
+import androidx.compose.foundation.layout.navigationBars
+import androidx.compose.foundation.layout.WindowInsetsSides
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.safeDrawing
 import androidx.compose.foundation.layout.size
@@ -836,29 +838,48 @@ fun ChatPage(
     LaunchedEffect(Unit) { snapshotFlow { (!Whale.dressing && menuA.value > .98f) || MineCard.open }.collect { Whale.cover(it) } }
     // 换装时输入框和对话退下去，主页标志收起
     val dressA by animateFloatAsState(if (Whale.dressing && Whale.active) 1f else 0f, tween(if (Whale.dressing) 320 else 200, easing = androidx.compose.animation.core.CubicBezierEasing(.2f, 0f, 0f, 1f)), label = "dress")
+    val hello = chat.messages.isEmpty() && !chat.busy
+    var headerHeight by remember { mutableIntStateOf(0) }
+    val topGap = if (compact) 26.dp else 38.dp
+    val bottomGap = if (compact) 22.dp else 30.dp
     val menuW = min(width.value * .86f, 340f).dp
     val menuPx = with(density) { menuW.toPx() }
     Box(Modifier.fillMaxSize().background(Skin.shade(.38f))) {
       Box(Modifier.fillMaxSize()) {
         WhaleHooks(chat)
         SpeechHooks(chat)
+        if (hello) {
+            Box(
+                Modifier.fillMaxSize()
+                    .windowInsetsPadding(WindowInsets.safeDrawing.only(WindowInsetsSides.Top + WindowInsetsSides.Horizontal))
+                    .windowInsetsPadding(WindowInsets.navigationBars.only(WindowInsetsSides.Bottom))
+                    .padding(
+                        start = side,
+                        end = side,
+                        top = topGap + with(density) { headerHeight.toDp() },
+                        bottom = bottomGap + 64.dp,
+                    )
+                    .graphicsLayer { alpha = 1f - dressA },
+                contentAlignment = Alignment.Center,
+            ) { ChatHello(compact, store, chat) }
+        }
         Column(
             Modifier
                 .fillMaxSize()
                 .windowInsetsPadding(WindowInsets.safeDrawing)
                 .imePadding()
-                .padding(start = side, end = side, top = if (compact) 26.dp else 38.dp, bottom = if (compact) 22.dp else 30.dp),
+                .padding(start = side, end = side, top = topGap, bottom = bottomGap),
         ) {
-            ChatHeader(compact, chat.messages.isEmpty() && !chat.busy, false, chat.convId?.let { chat.history.get(it) }, chat.project, menuEnabled = !dressing, onMenu = { menu = true }) { Chats.fresh() }
-            val hello = chat.messages.isEmpty() && !chat.busy
+            Box(Modifier.onSizeChanged { headerHeight = it.height }) {
+                ChatHeader(compact, hello, false, chat.convId?.let { chat.history.get(it) }, chat.project, menuEnabled = !dressing, onMenu = { menu = true }) { Chats.fresh() }
+            }
             Box(
                 Modifier.weight(1f).fillMaxWidth()
                     .onGloballyPositioned { val r = it.boundsInWindow(); Whale.room(r.top, r.bottom) }
                     .graphicsLayer { alpha = 1f - dressA * (if (hello) 1f else .75f) },
                 contentAlignment = Alignment.Center,
             ) {
-                if (hello) ChatHello(compact, store, chat)
-                else Conversation(chat, store, compact, flight, onSetup = onSetup, onRetry = { chat.retry(scope, store) }, onThink = { thinkOf = it; thinkOpen = true }, onImage = { viewing = it }, onWork = { workOpen = it },
+                if (!hello) Conversation(chat, store, compact, flight, onSetup = onSetup, onRetry = { chat.retry(scope, store) }, onThink = { thinkOf = it; thinkOpen = true }, onImage = { viewing = it }, onWork = { workOpen = it },
                     pressed = press?.index ?: -1, onLong = { if (!chat.busy || it.index < chat.messages.size) press = it })
                 WhaleTouch()
             }
@@ -1355,6 +1376,11 @@ private fun ChatInput(
 ) {
     val keyboard = androidx.compose.ui.platform.LocalSoftwareKeyboardController.current
     val focus = androidx.compose.ui.platform.LocalFocusManager.current
+    fun handOffKeyboard(open: () -> Unit) {
+        keyboard?.hide()
+        focus.clearFocus()
+        open()
+    }
     // 她在做时也能发：有字就是 ↑（排在末尾），没字才是 ■
     val canSend = (chat.draft.isNotBlank() || (chat.atts.isNotEmpty() && !chat.busy)) && (!chat.full || chat.editing >= 0)
     // 方案 2：开始打字，发送球从输入框里拉出来；删空了再被吸回去
@@ -1470,9 +1496,9 @@ private fun ChatInput(
             )
             Spacer(Modifier.height(8.dp))
             Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(10.dp)) {
-                PlusButton { ChatTools.toggle(ChatTools.Ctx(chat, provider, model, attach)) }
+                PlusButton { handOffKeyboard { ChatTools.toggle(ChatTools.Ctx(chat, provider, model, attach)) } }
                 // 模型胶囊：一行时藏起来（不占点按），展开时从 ＋ 旁边长出来
-                if (fold.open > .05f) Pressable(onPick, Modifier.graphicsLayer {
+                if (fold.open > .05f) Pressable({ handOffKeyboard(onPick) }, Modifier.graphicsLayer {
                     val o = fold.open.coerceIn(0f, 1f)
                     alpha = o; scaleX = .92f + .08f * o; scaleY = scaleX; translationY = 8.dp.toPx() * (1f - o)
                     transformOrigin = androidx.compose.ui.graphics.TransformOrigin(0f, .5f)
@@ -1493,11 +1519,11 @@ private fun ChatInput(
                 if (fold.open > .05f) {
                     val o = fold.open.coerceIn(0f, 1f)
                     val fade = Modifier.graphicsLayer { alpha = o; translationY = 8.dp.toPx() * (1f - o) }
-                    Pressable({ ChatSheets.worldBooks(chat.convId) }, fade, label = "世界书") { pr ->
+                    Pressable({ handOffKeyboard { ChatSheets.worldBooks(chat.convId) } }, fade, label = "世界书") { pr ->
                         SvgIcon(KI.worldBook, if (AssistantExt.of(Memory.active).worldBooks.isEmpty()) Page.muted else Page.accent, 16.dp, stroke = 1.8f,
                             modifier = Modifier.background(veil(if (pr) .13f else .07f), CircleShape).padding(9.dp))
                     }
-                    if (AssistantExt.of(Memory.active).phrases.isNotEmpty()) Pressable({ ChatSheets.phrases { chat.draft = (chat.draft + it).take(20000) } }, fade, label = "快捷短语") { pr ->
+                    if (AssistantExt.of(Memory.active).phrases.isNotEmpty()) Pressable({ handOffKeyboard { ChatSheets.phrases { chat.draft = (chat.draft + it).take(20000) } } }, fade, label = "快捷短语") { pr ->
                         SvgIcon(KI.quote, Page.muted, 16.dp, stroke = 1.8f, modifier = Modifier.background(veil(if (pr) .13f else .07f), CircleShape).padding(9.dp))
                     }
                 }
@@ -1608,14 +1634,14 @@ private fun ModelDrawer(open: Boolean, store: AssistantStore, compact: Boolean, 
     var view by remember { mutableStateOf(store.activeProvider) }
     LaunchedEffect(open) {
         if (open) { if (!more) view = store.activeProvider }
-        else { kotlinx.coroutines.delay(260); find = ""; more = false; view = store.activeProvider }
+        else { releaseSearch(); kotlinx.coroutines.delay(260); find = ""; more = false; view = store.activeProvider }
     }
     var host by remember { mutableStateOf<androidx.compose.ui.layout.LayoutCoordinates?>(null) }
     var moreAt by remember { mutableStateOf<androidx.compose.ui.layout.LayoutCoordinates?>(null) }
     var anchor by remember { mutableStateOf<androidx.compose.ui.geometry.Rect?>(null) }
     val dim by androidx.compose.animation.core.animateFloatAsState(if (card.open || card.sink) 1f else 0f, tween(260), label = "dim")
     androidx.activity.compose.BackHandler(enabled = card.open) { if (card.pid != null) card.back(store) else card.dismiss(store) }
-    androidx.activity.compose.BackHandler(enabled = open && more && !card.open) { more = false }
+    androidx.activity.compose.BackHandler(enabled = open && more && !card.open) { releaseSearch(); more = false }
     LaunchedEffect(open) { if (!open && card.open) card.dismiss(store) }
     LaunchedEffect(card.note) { if (card.note != null) { kotlinx.coroutines.delay(2200); card.note = null } }
     fun openCard() {
@@ -1629,7 +1655,7 @@ private fun ModelDrawer(open: Boolean, store: AssistantStore, compact: Boolean, 
         // 暗幕：点空白处收起
         Box(
             Modifier.fillMaxSize().alpha(shown).background(Skin.scrim(.5f))
-                .pointerInput(Unit) { detectTapGestures { onClose() } },
+                .pointerInput(Unit) { detectTapGestures { closeDrawer() } },
         )
         BoxWithConstraints(Modifier.fillMaxSize(), contentAlignment = Alignment.BottomCenter) {
             val h = maxHeight
@@ -1643,16 +1669,20 @@ private fun ModelDrawer(open: Boolean, store: AssistantStore, compact: Boolean, 
                     }
                     .background(Skin.sheet, sheet)
                     .pointerInput(Unit) { detectTapGestures { } }
-                    .windowInsetsPadding(WindowInsets.safeDrawing.only(androidx.compose.foundation.layout.WindowInsetsSides.Bottom))
+                    .windowInsetsPadding((if (searchOwnsIme) WindowInsets.safeDrawing else WindowInsets.navigationBars).only(WindowInsetsSides.Bottom))
                     .heightIn(max = h * .88f),
             ) {
                 // 上：把手；下面两页（选择模型 ⇄ 所有模型），只有列表那一段滚
                 Box(Modifier.align(Alignment.CenterHorizontally).padding(top = 10.dp).width(40.dp).height(4.dp).background(veil(.25f), RoundedCornerShape(2.dp)))
                 ModelPages(
                     store, more, view, find,
-                    onFind = { find = it }, onMore = { more = it }, onView = { view = it },
-                    onPick = { pid, m -> store.use(pid, m); onClose() },
-                    onSetup = { id -> openCard(); if (id != null) card.openDetail(store, id) },
+                    onFind = { find = it }, onMore = { if (!it) releaseSearch(); more = it }, onView = { view = it },
+                    onSearchFocus = { focused ->
+                        searchFocused = focused
+                        if (focused) searchOwnsIme = true
+                    },
+                    onPick = { pid, m -> store.use(pid, m); closeDrawer() },
+                    onSetup = { id -> releaseSearch(); openCard(); if (id != null) card.openDetail(store, id) },
                     modifier = Modifier.weight(1f, fill = false),
                 )
                 // 下：思考档、自带搜索钉住不动（第 385 版去掉了上面那道线和「更多模型」按钮；没填 Key 的配置卡从这里往上长）
@@ -1673,7 +1703,7 @@ private fun ModelDrawer(open: Boolean, store: AssistantStore, compact: Boolean, 
                 }
             }
         }
-        ProviderCardLayer(card, store, anchor) { card.sink = true; card.open = false; onClose() }
+        ProviderCardLayer(card, store, anchor) { card.sink = true; card.open = false; closeDrawer() }
     }
 }
 

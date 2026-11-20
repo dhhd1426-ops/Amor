@@ -36,23 +36,27 @@ import androidx.compose.ui.graphics.toArgb
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.viewinterop.AndroidView
+import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
+import org.json.JSONArray
 import org.json.JSONObject
 import java.io.ByteArrayInputStream
 import java.nio.ByteBuffer
 import java.nio.charset.CodingErrorAction
+import java.util.UUID
+import java.util.concurrent.ConcurrentHashMap
 import java.util.zip.ZipInputStream
 
 /**
  * 拆书页：assets/chaishu/index.html，从右边推进来盖住整个 App（进 decel 400ms，出 accel 300ms）。
- * 页面通过 window.CS 调这边：存取书、问模型（记忆模型那一套，MemModel）、选文件。
+ * 页面通过 window.CS 调这边：存取书、调用分析模型、选文件。
  * 系统返回键先交给页面（关弹层、回上一层），页面说到底了才关掉。
  */
 @Composable
-fun ChaishuLayer() {
+fun ChaishuLayer(store: AssistantStore) {
     val open = Chaishu.open
     var shown by remember { mutableStateOf(false) }
     if (open) shown = true
@@ -88,7 +92,7 @@ fun ChaishuLayer() {
             .background(Skin.page),
     ) {
         AndroidView(
-            factory = { c -> chaishuWeb(c, scope, top, bottom, { picker.launch(arrayOf("text/plain", "application/epub+zip", "application/octet-stream", "text/*")) }).also { web.value = it } },
+            factory = { c -> chaishuWeb(c, scope, store, top, bottom, { picker.launch(arrayOf("text/plain", "application/epub+zip", "application/octet-stream", "text/*")) }).also { web.value = it } },
             modifier = Modifier.fillMaxSize(),
         )
     }
@@ -96,8 +100,11 @@ fun ChaishuLayer() {
 
 private const val HOST = "chaishu.app"
 
+private data class ChaishuModel(val provider: Provider, val config: ProviderConfig, val name: String)
+
+
 @SuppressLint("SetJavaScriptEnabled")
-private fun chaishuWeb(ctx: Context, scope: CoroutineScope, top: Float, bottom: Float, onPick: () -> Unit): WebView {
+private fun chaishuWeb(ctx: Context, scope: CoroutineScope, store: AssistantStore, top: Float, bottom: Float, onPick: () -> Unit): WebView {
     val main = Handler(Looper.getMainLooper())
     lateinit var w: WebView
     fun js(code: String) = main.post { runCatching { w.evaluateJavascript(code, null) } }
@@ -108,15 +115,59 @@ private fun chaishuWeb(ctx: Context, scope: CoroutineScope, top: Float, bottom: 
         @JavascriptInterface fun remove(id: String) { main.post { Chaishu.remove(id) } }
         @JavascriptInterface fun close() { main.post { Chaishu.open = false } }
         @JavascriptInterface fun pick() { main.post { onPick() } }
-        @JavascriptInterface fun model(): String = AttachLook.store?.let { MemModel.label(it) }.orEmpty()
-        /** 问一次模型；结果回调 cs.reply(请求号, 成没成, 正文或原因)。 */
-        @JavascriptInterface fun ask(req: String, system: String, user: String, maxTokens: Int) {
+        private val sessions = ConcurrentHashMap<String, ChaishuModel>()
+
+        @JavascriptInterface fun models(): String {
+            val active = JSONObject().put("provider", store.activeProvider)
+                .put("name", store.activeModel).put("label", store.config(store.activeProvider).name)
+            val options = JSONArray()
+            for (provider in store.ordered()) {
+                val config = store.config(provider.id)
+                if (!config.configured) continue
+                val names = if (store.activeProvider == provider.id) config.models + store.activeModel else config.models
+                for (name in names.filter { it.isNotBlank() && ModelSort.chat(it) }.distinct()) {
+                    options.put(JSONObject().put("provider", provider.id).put("name", name).put("label", config.name))
+                }
+            }
+            return JSONObject().put("active", active).put("options", options).toString()
+        }
+
+        @JavascriptInterface fun begin(providerId: String, modelName: String): String {
+            val following = providerId.isEmpty() && modelName.isEmpty()
+            val id = if (following) store.activeProvider else providerId
+            val name = if (following) store.activeModel else modelName
+            val provider = PROVIDERS.firstOrNull { it.id == id }
+            if (provider == null) return JSONObject().put("error", "找不到当前模型的供应商").toString()
+            val config = store.config(id)
+            if (!config.configured || name.isBlank()) {
+                return JSONObject().put("error", "请先配置 ${config.name} 的模型和 API Key").toString()
+            }
+            if (!following && name !in config.models && !(id == store.activeProvider && name == store.activeModel)) {
+                return JSONObject().put("error", "这个分析模型已从配置中移除").toString()
+            }
+            val session = UUID.randomUUID().toString()
+            sessions[session] = ChaishuModel(provider, config, name)
+            return JSONObject().put("session", session).put("name", name).put("provider", id).put("label", config.name).toString()
+        }
+
+        @JavascriptInterface fun end(session: String) { sessions.remove(session) }
+
+        @JavascriptInterface fun ask(session: String, req: String, system: String, user: String, maxTokens: Int) {
+            val model = sessions[session]
+            if (model == null) {
+                js("window.cs&&cs.reply(${JSONObject.quote(req)},false,${JSONObject.quote("分析任务已结束")},true)")
+                return
+            }
             scope.launch {
-                val r = withContext(Dispatchers.IO) { MemModel.ask(system, user, maxTokens.coerceIn(512, 8192)) }
-                val ok = r != null
-                val text = r ?: MemModel.lastError.ifBlank { "模型没回应" }
-                val fatal = !ok && MemModel.fatal(text)
-                js("window.cs&&cs.reply(${JSONObject.quote(req)},$ok,${JSONObject.quote(text)},$fatal)")
+                try {
+                    val text = ChatApi.complete(model.provider, model.config, model.name, system, user, maxTokens.coerceIn(512, 8192))
+                    js("window.cs&&cs.reply(${JSONObject.quote(req)},true,${JSONObject.quote(text)},false)")
+                } catch (cancelled: CancellationException) {
+                    throw cancelled
+                } catch (error: Exception) {
+                    val text = MemModel.why(error, model.config.name, model.name)
+                    js("window.cs&&cs.reply(${JSONObject.quote(req)},false,${JSONObject.quote(text)},${MemModel.fatal(text)})")
+                }
             }
         }
     }

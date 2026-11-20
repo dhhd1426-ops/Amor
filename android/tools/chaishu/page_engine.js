@@ -8,11 +8,11 @@
  */
 const sleep=ms=>new Promise(r=>setTimeout(r,ms));
 let reqN=0;const pending=new Map();
-function ask(system,user,max){
+function ask(b,system,user,max){
   return new Promise((res,rej)=>{
     if(!NATIVE)return rej(Object.assign(new Error('网页预览里不能调模型，请在 App 里分析'),{fatal:true}));
     const id='r'+(++reqN);pending.set(id,{res,rej});
-    try{CS.ask(id,system,user,max)}catch(e){pending.delete(id);rej(e)}
+    try{CS.ask(b._modelSession,id,system,user,max)}catch(e){pending.delete(id);rej(e)}
   });
 }
 function onReply(id,ok,text,fatal){const p=pending.get(id);if(!p)return;pending.delete(id);ok?p.res(text):p.rej(Object.assign(new Error(text),{fatal:!!fatal}))}
@@ -22,13 +22,18 @@ function parseJSON(t){
   const s=t.slice(a,b+1);
   try{return JSON.parse(s)}catch(e){try{return JSON.parse(s.replace(/,\s*([}\]])/g,'$1'))}catch(e2){return null}}
 }
-async function askJSON(b,system,user,max){
+async function askJSON(b,system,user,max,valid){
   let last;
   for(let k=0;k<3;k++){
     if(b._stop)throw Object.assign(new Error('stop'),{stop:true});
-    try{const o=parseJSON(await ask(system,user,max));if(o)return o;last=Object.assign(new Error('模型返回的 JSON 不完整'),{bad:true});}
-    catch(e){if(e.fatal)throw e;last=e;}
-    await sleep(1500*(k+1));
+    try{
+      const o=parseJSON(await ask(b,system,user,max));
+      if(b._stop)throw Object.assign(new Error('stop'),{stop:true});
+      if(o&&valid(o))return o;
+      last=new Error('模型返回的分析资料不完整');
+    }
+    catch(e){if(e.fatal||e.stop)throw e;last=e;}
+    if(k<2)await sleep(1500*(k+1));
   }
   throw last;
 }
@@ -220,13 +225,18 @@ function fixCard(b,k,o){
 function setProg(b){
   if(B!==b)return;
   const p=b.prog;
-  $('#runLbl').textContent=b._busy?`分析中 ${p.done}/${p.total}`:p.done?`继续分析 ${p.done}/${p.total}`:'用模型分析本书';
+  $('#runLbl').textContent=b._busy?`分析中 ${p.done}/${p.total}`:p.done?`继续分析 ${p.done}/${p.total}`:'分析本书';
   $('#runBar').style.transform=`scaleX(${p.total?p.done/p.total:0})`;
 }
 async function pool(items,n,fn,b){
-  let i=0;
-  const worker=async()=>{while(i<items.length&&!b._stop){const it=items[i++];await fn(it)}};
+  let i=0,failure=null;
+  const worker=async()=>{
+    while(i<items.length&&!b._stop&&!failure){
+      try{await fn(items[i++])}catch(error){failure=failure||error}
+    }
+  };
   await Promise.all(Array.from({length:Math.min(n,items.length)},worker));
+  if(failure)throw failure;
 }
 function picksForCards(b){
   const short=b.chapters.length<=3;
@@ -242,16 +252,22 @@ async function analyze(b){
   b.prog={done:Object.keys(raw.done).length+(raw.cardsDone?raw.cardsDone.length:0)+(b.world?1:0),total:est()};setProg(b);
   // 一、逐段抽取
   const todo=cks.map((ck,i)=>({...ck,key:ck.a+'-'+ck.b+'-'+i})).filter(ck=>!raw.done[ck.key]);
-  const run1=async(ck,depth=0)=>{
-    try{absorb(b,ck,await askJSON(b,SYS,p1(b,ck),6000))}
-    catch(e){
-      if(e.fatal||e.stop)throw e;
-      if(depth<2&&ck.text.length>3000){const h=ck.text.length>>1,cut=ck.text.indexOf('\n',h);const at=cut>0?cut:h;
-        await run1({...ck,text:ck.text.slice(0,at)},depth+1);await run1({...ck,text:ck.text.slice(at)},depth+1);return;}
+  const extract=async(ck,depth=0)=>{
+    try{
+      const out=await askJSON(b,SYS,p1(b,ck),6000,o=>Array.isArray(o.chapters)&&o.chapters.some(c=>c?.sum?.trim())&&Array.isArray(o.people));
+      return [[ck,out]];
+    }catch(e){
+      if(e.fatal||e.stop||depth>=2||ck.text.length<=3000)throw e;
+      const mid=ck.text.length>>1,line=ck.text.indexOf('\n',mid);
+      const at=line>mid&&line<ck.text.length-1?line:mid;
+      return [...await extract({...ck,text:ck.text.slice(0,at)},depth+1),...await extract({...ck,text:ck.text.slice(at)},depth+1)];
     }
-    if(depth===0){raw.done[ck.key]=1;b.prog.done++;b.prog.total=est();setProg(b);persist(b)}
   };
-  await pool(todo,3,run1,b);
+  await pool(todo,3,async ck=>{
+    const parts=await extract(ck);
+    for(const [part,out] of parts)absorb(b,part,out);
+    raw.done[ck.key]=1;b.prog.done++;b.prog.total=est();setProg(b);persist(b);
+  },b);
   if(b._stop)return;
   // 二、成卡
   skeleton(b);persist(b);
@@ -260,18 +276,16 @@ async function analyze(b){
   b.prog.total=est();setProg(b);
   const left=raw.cards.filter(k=>!raw.cardsDone.includes(k)&&raw.people[k]);
   await pool(left,3,async k=>{
-    try{fixCard(b,k,await askJSON(b,SYS,p2(b,k,material(b,k)),7000))}catch(e){if(e.fatal||e.stop)throw e}
+    fixCard(b,k,await askJSON(b,SYS,p2(b,k,material(b,k)),7000,o=>typeof o.r==='string'&&!!o.r.trim()));
     raw.cardsDone.push(k);b.prog.done++;setProg(b);persist(b);lightUp(b,k);
   },b);
   if(b._stop)return;
   // 三、世界
   if(!b.world){
-    try{
-      const notes={chapters:b.chapters.slice(0,60).map((c,i)=>({n:i+1,sum:c.sum||''})),world:cap(raw.world,40)};
-      const o=await askJSON(b,SYS,p3(b,notes),3000);
-      b.world={sum:String(o.sum||''),items:(o.items||[]).filter(x=>Array.isArray(x)&&x[0]&&x[1]).map(([k,t,src])=>{
-        const q=Array.isArray(src)?src[1]:'';const at=q?locate(b,q):0;return [k,t,at?[at,q]:[0,'']]})};
-    }catch(e){if(e.fatal||e.stop)throw e;b.world={sum:'',items:[]}}
+    const notes={chapters:b.chapters.slice(0,60).map((c,i)=>({n:i+1,sum:c.sum||''})),world:cap(raw.world,40)};
+    const o=await askJSON(b,SYS,p3(b,notes),3000,o=>typeof o.sum==='string'&&Array.isArray(o.items));
+    b.world={sum:o.sum,items:o.items.filter(x=>Array.isArray(x)&&x[0]&&x[1]).map(([k,t,src])=>{
+      const q=Array.isArray(src)?src[1]:'';const at=q?locate(b,q):0;return [k,t,at?[at,q]:[0,'']]})};
     if(!b.world.sum&&!b.world.items.length)b.world=null;
     b.prog.done++;
   }
@@ -286,18 +300,16 @@ function lightUp(b,k){
 }
 function resetAnalysis(b){
   if(b.sample)return;
-  b._stop=true;
-  setTimeout(()=>{
-    b.chars={};b.order=[];b.world=null;b.done=false;delete b.raw;b.prog={done:0,total:0};
-    b.chapters.forEach(c=>{delete c.sum;delete c.ev;c.cast=[]});
-    b._stop=false;b._busy=false;persist(b);if(B===b)openBook(b,true);
-  },300);
+  if(b._busy){toast('请先停止当前分析');return;}
+  b.chars={};b.order=[];b.world=null;b.done=false;delete b.raw;b.prog={done:0,total:0};
+  b.chapters.forEach(c=>{delete c.sum;delete c.ev;c.cast=[]});
+  b._stop=false;persist(b);if(B===b)openBook(b,true);
 }
 function runState(){
   const b=B,rw=$('#runWrap'),rb=$('#runBtn');
   const done=b.sample?b.analyzed>=b.chapters.length:!!b.done;
-  rw.classList.toggle('gone',done);rb.className='run';rb.disabled=false;
-  if(b.sample){$('#runLbl').textContent=b.analyzed?`继续分析 ${b.analyzed}/${b.chapters.length}`:'用模型分析本书';$('#runBar').style.transform=`scaleX(${b.analyzed/b.chapters.length})`;}
+  rw.classList.toggle('gone',done);rb.className='run';rb.disabled=false;renderAnalysisModel(b);
+  if(b.sample){$('#runLbl').textContent=b.analyzed?`继续分析 ${b.analyzed}/${b.chapters.length}`:'播放分析示例';$('#runBar').style.transform=`scaleX(${b.analyzed/b.chapters.length})`;}
   else{b.prog=b.prog||{done:0,total:0};setProg(b);}
 }
 async function finishRun(b){
@@ -305,21 +317,56 @@ async function finishRun(b){
   stats();
   $('#runLbl').textContent='完成';
   await wait(500);
+  if(B!==b)return;
   $('#runBtn').classList.add('done');
   await wait(200);
+  if(B!==b)return;
   $('#runWrap').classList.add('gone');
   openBook(b,true);
 }
+function analysisModels(){
+  if(!NATIVE)return {active:null,options:[]};
+  try{return JSON.parse(CS.models())}catch(e){return {active:null,options:[]}}
+}
+function renderAnalysisModel(b){
+  const button=$('#runModel');
+  button.hidden=b.sample||!NATIVE;
+  button.disabled=!!b._busy||!!b.done;
+  if(button.hidden)return;
+  const model=b._runModel||b._modelChoice||analysisModels().active;
+  button.textContent=(model?.name||'选择模型')+' ⌄';
+  button.setAttribute('aria-label','分析模型：'+(model?.name||'未配置'));
+}
+function modelChoices(){
+  const models=analysisModels(), selected=B._modelChoice;
+  return [{provider:'',name:'',label:'跟随当前助理',detail:models.active?.name||'未配置'},...models.options.map(m=>({...m,detail:m.label,label:m.name}))]
+    .map(m=>`<button type="button" class="choice press" data-act="analysis-model" data-provider="${esc(m.provider)}" data-model="${esc(m.name)}" aria-pressed="${(selected?.provider||'')===m.provider&&(selected?.name||'')===m.name}">${esc(m.label)}<small>${esc(m.detail)}</small></button>`).join('');
+}
+$('#runModel').onclick=()=>{if(!B._busy&&!B.sample)openSheet({k:'models'},$('#runModel'));};
 $('#runBtn').onclick=async()=>{
   const b=B,btn=$('#runBtn');
-  if(b._busy){b._stop=true;btn.classList.remove('err');$('#runLbl').textContent='停下了';return;}
+  if(b._busy){b._stop=true;btn.classList.remove('err');$('#runLbl').textContent='正在停止…';return;}
+  if(b.done)return;
   if(b.sample)return runSample(b);
-  b._busy=true;b._stop=false;btn.classList.remove('err');setProg(b);
-  try{await analyze(b);b._busy=false;if(b.done)finishRun(b);else setProg(b);}
-  catch(e){
+  if(!NATIVE){toast('请在 Amor App 中运行模型分析');return;}
+  let session;
+  try{
+    session=JSON.parse(CS.begin(b._modelChoice?.provider||'',b._modelChoice?.name||''));
+    if(!session.session)throw new Error(session.error||'无法启动分析');
+  }catch(e){toast(String(e.message||e).slice(0,100));return;}
+  b._modelSession=session.session;b._runModel=session;b._busy=true;b._stop=false;
+  btn.classList.remove('err');renderAnalysisModel(b);setProg(b);
+  try{
+    await analyze(b);
+    b._busy=false;
+    if(b.done){delete b._modelChoice;finishRun(b)}else setProg(b);
+  }catch(e){
     b._busy=false;b._stop=true;persist(b);
     if(B===b){setProg(b);if(!e.stop){btn.classList.add('err');$('#runLbl').textContent='没分析完 · 点这里接着来';}}
-    if(!e.stop)toast(String(e.message||e).slice(0,60));
+    if(!e.stop)toast(String(e.message||e).slice(0,100));
+  }finally{
+    CS.end(session.session);delete b._modelSession;delete b._runModel;
+    if(B===b)renderAnalysisModel(b);
   }
 };
 /* 示例书：资料是写好的，按章亮起来演示一遍 */
