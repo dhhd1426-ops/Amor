@@ -95,8 +95,9 @@ object Trail {
         PanTools.OPEN -> "正在打开网盘分享"; PanTools.GET -> "正在下网盘里的文件"
         in ClockTools.names -> ClockTools.liveTitle(n)
         in WebHand.names -> WebHand.liveTitle(n)
-        SentFiles.TOOL -> "正在打包文件"; SentPics.TOOL -> "正在拿图"; Pacts.SET -> "正在记约定"; Pacts.DROP -> "正在取消约定"; Works.MAKE -> "正在动手做"; WorkJobs.START -> "正在交代"; WorkJobs.STOP -> "正在停下"; WhaleTools.ACT -> "正在动一下"; WorkJobs.RESUME -> "正在接着做"; "get_work_status" -> "正在查做到哪"; Works.EDIT -> "正在改作品"; Works.READ -> "正在看原稿"; Steps.TOOL -> "正在理要做的事"; "list_todos" -> "正在查看羽的待办"; "read_note" -> "正在读羽的笔记"
-        else -> if (Mcp.owns(n)) Mcp.note(n).trimEnd('…') else "正在查阅羽的笔记"
+        SentFiles.TOOL -> "正在打包文件"; SentPics.TOOL -> "正在拿图"; Pacts.SET -> "正在记约定"; Pacts.DROP -> "正在取消约定"; Works.MAKE -> "正在动手做"; WorkJobs.START -> "正在交代"; WorkJobs.STOP -> "正在停下"; WhaleTools.ACT -> "正在动一下"; WorkJobs.RESUME -> "正在接着做"; "get_work_status" -> "正在查做到哪"; Works.EDIT -> "正在改作品"; Works.READ -> "正在看原稿"; Steps.TOOL -> "正在理要做的事"
+        Chaishu.CHAR -> "正在翻角色卡"; Chaishu.REL -> "正在看人物关系"; Chaishu.FIND -> "正在查原文"; Chaishu.WORLD -> "正在看世界背景"
+        else -> if (Mcp.owns(n)) Mcp.note(n).trimEnd('…') else "正在处理"
     }
 
     fun doneTitle(n: String, a: JSONObject): String = when (n) {
@@ -123,8 +124,11 @@ object Trail {
         in ClockTools.names -> ClockTools.doneTitle(n, a)
         in WebHand.names -> WebHand.doneTitle(n, a)
         Materials.LOOK -> "看了 ${a.optJSONArray("urls")?.length() ?: 0} 件素材"
-        Works.READ -> "看了原稿"; Steps.TOOL -> Steps.doneTitle(a); "list_todos" -> "看了羽的待办"; "read_note" -> "读了一篇羽的笔记"
-        else -> if (Mcp.owns(n)) Mcp.note(n).replace("正在用", "用了").trimEnd('…') else "查了羽的笔记"
+        Works.READ -> "看了原稿"; Steps.TOOL -> Steps.doneTitle(a)
+        Chaishu.CHAR -> "看了「${a.optString("name").trim().take(10)}」的角色卡"
+        Chaishu.REL -> "看了${a.optString("name").trim().take(8)}" + a.optString("target").trim().take(8).let { if (it.isEmpty()) "的人物关系" else "怎样对待$it" }
+        Chaishu.FIND -> "查了原文"; Chaishu.WORLD -> "看了世界背景"
+        else -> if (Mcp.owns(n)) Mcp.note(n).replace("正在用", "用了").trimEnd('…') else "处理好了"
     }
 
     fun failTitle(n: String, a: JSONObject): String =
@@ -138,7 +142,9 @@ object Trail {
         Fold.LOOK -> Fold.detail(a)
         Memory.REMEMBER, Memory.FORGET -> a.optString("text")
         Memory.READ -> Memory.titles(a)
-        Recall.TOOL, "search_notes", WebSearch.TOOL, Skills.FIND -> a.optString("query")
+        Recall.TOOL, WebSearch.TOOL, Skills.FIND, Chaishu.FIND -> a.optString("query")
+        Chaishu.CHAR -> a.optString("name")
+        Chaishu.REL -> a.optString("name") + a.optString("target").let { if (it.isBlank()) "" else " → $it" }
         Skills.OPEN -> a.optJSONArray("names")?.let { arr -> (0 until arr.length()).joinToString("、") { arr.optString(it) } } ?: a.optString("name")
         Skills.LEARN -> a.optString("repo") + "/" + a.optString("path")
         Materials.OPEN -> a.optString("url")
@@ -157,7 +163,8 @@ object Trail {
         Lessons.STEP -> bulb
         Memory.REMEMBER, Memory.READ -> bookmark; Memory.FORGET -> eraser; Recall.TOOL, Recall.AUTO -> bubble; Recall.OPEN, Fold.LOOK -> folder; WebSearch.TOOL, Materials.OPEN, QwenSearch.STEP -> globe; Materials.LOOK, SentPics.TOOL -> picture; VideoParse.TOOL -> Icons.play; VideoParse.SAVE, PanTools.GET -> saveIcon; PanTools.OPEN -> globe
         Skills.OPEN, Skills.FIND, Skills.LEARN -> skillIcon
-        Works.MAKE, Works.EDIT -> shapes; Works.READ, SentFiles.TOOL -> page; Pacts.SET, Pacts.DROP -> alarmIcon; "list_todos", Steps.TOOL -> todo
+        Works.MAKE, Works.EDIT -> shapes; Works.READ, SentFiles.TOOL -> page; Pacts.SET, Pacts.DROP -> alarmIcon; Steps.TOOL -> todo
+        in Chaishu.names -> page
         ClockTools.ALARM, ClockTools.NEXT, ClockTools.OFF -> alarmIcon
         in ClockTools.names -> calIcon
         in WebHand.names -> globe

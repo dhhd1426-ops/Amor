@@ -250,6 +250,8 @@ fun FuguangApp(prefs: Prefs, fullscreen: Boolean, setFullscreen: (Boolean) -> Un
         InBrowserLayer()
         ProjectsLayer(chatState.history)
         DownloadsLayer()
+        // 拆书：从右边推进来，盖住聊天和「我的」卡片
+        ChaishuLayer()
         // 聊天里放抖音：小窗、全屏
         ClipPlayLayer()
 

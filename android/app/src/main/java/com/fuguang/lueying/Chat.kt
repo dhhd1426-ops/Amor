@@ -146,7 +146,7 @@ class ChatState(val history: ConvStore) {
     private var overflowAt = -1
     /** 这轮用过 / 正在用的工具，和思考段落排在同一条时间线上。 */
     val liveSteps = mutableStateListOf<ToolStep>()
-    /** 这轮回答里读到的羽的笔记图片。 */
+    /** 这轮回答里带出来的图片引用。 */
     val pendingImgs = mutableStateListOf<String>()
     /** 这次回复里做好的作品 id。 */
     val pendingWorks = mutableStateListOf<String>()
@@ -325,12 +325,12 @@ class ChatState(val history: ConvStore) {
                         if (err != null) { slips += Lessons.PHOTO; happened -= "photo" }
                     }
                 }
-                // 连接了羽：给模型查笔记的工具；开着跨聊天回忆：再给一个翻以前聊天的工具
-                Yu.refresh()
-                val yu = Yu.connected
+                // 开着跨聊天回忆：给一个翻以前聊天的工具
                 val recall = who.memOn
                 val store0 = this@ChatState.history
                 val cur = convId
+                // ＋ › 拆书 勾上的书：查角色卡、人物关系、原文、世界背景的工具
+                val novels = Chaishu.usable(who, cur)
                 Steps.startTurn(cur)
                 val conv0 = store0.get(cur)
                 val folded = Fold.of(conv0)
@@ -356,7 +356,7 @@ class ChatState(val history: ConvStore) {
                     (if (!on("motion")) emptyList() else if (videoRefs.isEmpty()) MotionTools.specs.filter { it.name == MotionTools.RENDER } else MotionTools.specs) +
                     (if (on("pan")) PanTools.specs else emptyList()) + (if (on("clock")) ClockTools.specs else emptyList()) + (if (Whale.active) listOf(WhaleTools.spec) else emptyList()) +
                     WebHand.specs.filter { if (it.name == WebHand.ASK) on("ask") else on("web") } + skills + (if (web) listOf(WebSearch.spec) else emptyList()) +
-                    (if (yu) Yu.tools else emptyList()) + (if (recall) listOf(Recall.spec, Recall.openSpec) else emptyList()) + (if (folded != null) listOf(Fold.spec) else emptyList()) + mcp +
+                    (if (novels.isNotEmpty()) Chaishu.specs else emptyList()) + (if (recall) listOf(Recall.spec, Recall.openSpec) else emptyList()) + (if (folded != null) listOf(Fold.spec) else emptyList()) + mcp +
                     LocalTools.specs(ax)
                 val convTitle0 = store0.get(cur)?.title ?: firstSentence(question, 18)
                 // 对方发来的照片，最近的在前：send_image / send_file 里 photo:1 就是最近那张
@@ -383,7 +383,7 @@ class ChatState(val history: ConvStore) {
                     if (native) append("\n").append("你这会儿能直接上网查（用的是你自己带的搜索）：问到天气、新闻、价格、谁现在是什么职位这类会变的事，先查再说；查到的照实说，拿不准的说拿不准。")
                     if (recall) append("\n").append(Recall.system())
                     if (folded != null) append("\n").append(Fold.system())
-                    if (yu) append("\n").append(Yu.system())
+                    if (novels.isNotEmpty()) append("\n").append(Chaishu.system(novels))
                     if (mcp.isNotEmpty()) append("\n").append(Mcp.system())
                 }
                 // 跨聊天回忆：拿他这句话对一下以前的聊天，对上的把小结放到她眼前，时间线上记一步「想起之前聊过的」（第 363 版）
@@ -394,7 +394,9 @@ class ChatState(val history: ConvStore) {
                 // 项目里的对话：自定义指令和文字资料接在最后（每轮一样，能缓存）
                 val sysBase = AssistantExt.fillVars(Prompt.system(who, model0), AssistantExt.placeholders(who, model0, null)) + Projects.system(this@ChatState.project ?: Projects.of(cur)) + (if (Talk.open) Talk.RULE else "") +
                     // ＋ › 指令注入：勾上的卡片追加在系统提示词末尾（Kelivo injectInstructionPrompts）
-                    Injections.prompt(who, cur).let { if (it.isEmpty()) "" else "\n\n$it" }
+                    Injections.prompt(who, cur).let { if (it.isEmpty()) "" else "\n\n$it" } +
+                    // ＋ › 拆书：最近几句提到的人物，角色卡自动带上（照 Kelivo 世界书的关键词触发）
+                    Chaishu.lore(novels, sent0)
                 // 照 Kelivo：发出去的每条先过「仅替换」正则；你的话套聊天内容模板、末尾追加时间；最前面放预设对话；再按世界书放条目
                 val shaped = sent0.map { m ->
                     if (m.role == "user") {
@@ -448,7 +450,7 @@ class ChatState(val history: ConvStore) {
                             else if (n == PanTools.OPEN || n == PanTools.GET) PanTools.run(n, a) { l -> if (messages.none { l in it.clips } && l !in pendingClips) pendingClips.add(l) }
                             else if (n == WhaleTools.ACT) WhaleTools.run(a)
                             else if (n in ClockTools.names) ClockTools.run(n, a, who.id) { l -> if (l !in pendingClips) pendingClips.add(l) }
-                            else if (n == Materials.OPEN || n == Materials.LOOK) Materials.run(n, a, Yu.vision(p.id))
+                            else if (n == Materials.OPEN || n == Materials.LOOK) Materials.run(n, a, Attach.vision(p.id, model0))
                             else if (n == Skills.OPEN || n == Skills.FIND || n == Skills.LEARN) Skills.run(n, a)
                             else if (n == Pacts.SET || n == Pacts.DROP) Pacts.run(n, a, who) { ref -> pendingWorks.add(ref); pendingWorkAt.add(partial.length) }
                             else if (n == SentFiles.TOOL) SentFiles.run(a, photos()) { ref -> pendingWorks.add(ref); pendingWorkAt.add(partial.length) }
@@ -467,7 +469,8 @@ class ChatState(val history: ConvStore) {
                             else if (n in WebHand.names) WebHand.run(n, a)
                             else if (n in LocalTools.names) LocalTools.run(n, a)
                             else if (Mcp.owns(n)) Mcp.run(n, a)
-                            else Yu.run(n, a, Yu.vision(p.id)) { refs -> refs.forEach { r -> if (r !in pendingImgs) pendingImgs.add(r) } }
+                            else if (n in Chaishu.names) Chaishu.run(n, a, novels)
+                            else ToolOut("没有这个工具：$n", failed = true)
                             made = !out.failed && made
                             // 有了结果（成没成都知道了）：划掉「做到一半」那笔
                             Steps.end(cur, halfKey)
@@ -501,7 +504,6 @@ class ChatState(val history: ConvStore) {
                     fallback = if (specs.isNotEmpty()) ({
                         listOfNotNull(
                             if (recall) Recall.context(store0, cur).takeIf { it.isNotEmpty() } else null,
-                            if (yu) Yu.context(question) else null,
                         ).joinToString("\n\n")
                     }) else null,
                     toolNote = extra,

@@ -52,10 +52,10 @@ import androidx.compose.ui.unit.sp
 import kotlinx.coroutines.launch
 import kotlin.math.abs
 
-/** 羽的笔记图（"笔记id/图片id"）和她发的图（SentPics，"pic:…"）都从这里读。 */
-suspend fun refBitmap(ref: String, max: Int): android.graphics.Bitmap? = if (SentPics.isRef(ref)) SentPics.bitmap(ref, max) else Yu.bitmap(ref, max)
+/** 她发的图（SentPics，"pic:…"）从这里读；别的引用读不到，返回 null。 */
+suspend fun refBitmap(ref: String, max: Int): android.graphics.Bitmap? = if (SentPics.isRef(ref)) SentPics.bitmap(ref, max) else null
 
-/** 回复下面的图：羽的笔记图是一排小方块（可以横着滑）；她发的图一张就大图、两张以上两列方块。点开看大图。 */
+/** 回复下面的图：旧记录里的其他图是一排小方块（可以横着滑）；她发的图一张就大图、两张以上两列方块。点开看大图。 */
 @Composable
 fun NoteImageRow(refs: List<String>, onOpen: (String) -> Unit) {
     if (refs.isEmpty()) return
@@ -67,7 +67,7 @@ fun NoteImageRow(refs: List<String>, onOpen: (String) -> Unit) {
         horizontalArrangement = Arrangement.spacedBy(8.dp),
     ) {
         notes.forEach { ref ->
-            val bmp by produceState<android.graphics.Bitmap?>(null, ref) { value = Yu.bitmap(ref, 360) }
+            val bmp by produceState<android.graphics.Bitmap?>(null, ref) { value = refBitmap(ref, 360) }
             // 图片读出来之前是一块淡色块，读到后淡入
             val a by animateFloatAsState(if (bmp != null) 1f else 0f, tween(260), label = "thumb")
             Box(

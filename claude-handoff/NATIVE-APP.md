@@ -59,7 +59,7 @@
 - `ContentStore.kt`：在线内容、缓存、兜底、小红点
 - `Theme.kt`：颜色全部取自网站 CSS，深浅两套
 - `Prefs.kt`：本机存储，键名和网站 localStorage 一致
-- `YuConnector.kt` 里的 `YuProvider`：连接器 api 3（第 88 版加）。羽反过来请助理整理导图：`ContentResolver.call(content://com.fuguang.lueying.yu, "outline", 文字, extras{hint})`，返回 `json`。两道门：调用方签名是羽的、羽的 status 仍 connected；不新建连接，开关在羽那边。
+- `Chaishu.kt` / `ChaishuPage.kt` + `assets/chaishu/index.html`：拆书（第 528 版起，替换原来的笔记连接器）。导入小说 → 模型逐段抽取 → 角色卡、人物关系与对白、世界背景，存在 `filesDir/chaishu/<id>.json`（原文 `<id>.txt`）。聊天 ＋ › 拆书 按助理 / 对话勾选（和指令注入同一套范围）；勾上后给模型 `book_character` / `book_relation` / `book_search` / `book_world` 四个工具，并把最近几句提到的人物角色卡注入系统提示。页面由 `android/tools/chaishu/` 生成：改 `prototype.html`（原型，带演示页）或 `page_*.js`，再跑 `python3 android/tools/chaishu/build_page.py`。
 - `Mcp.kt`：MCP 服务（第 87 版加）。远程两种传输：Streamable HTTP（POST，回 JSON 或 SSE，会话在 `Mcp-Session-Id` 头）和旧式 SSE（GET 拿 endpoint 再 POST）。`probe()` 连一次拿服务名和工具列表；`specs` / `system()` / `run()` 把开着的服务工具挂给模型，工具名是 `服务id__工具名`。精选单 `BUILTIN` 内置一份，和公开仓库 `mcp/catalog.json` 同一份，仓库里的会覆盖。
 - `Mine.kt` 里的 `McpScreen`（左右两页：市场 / 已连接）和 `McpServerScreen`（填 key / 地址 / token，连接后勾工具，改名，删除）。入口在「我的 → 连接器 → MCP 服务」。服务和 token 只存本机（`mcp-servers`）。
 

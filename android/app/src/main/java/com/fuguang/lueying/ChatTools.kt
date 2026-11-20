@@ -238,6 +238,8 @@ private object TI {
     val window = Ic("M4 3h16a2 2 0 0 1 2 2v14a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2ZM10 4v4M2 8h20M6 4v4")
     val layers = Ic("M12.83 2.18a2 2 0 0 0-1.66 0L2.6 6.08a1 1 0 0 0 0 1.83l8.58 3.91a2 2 0 0 0 1.66 0l8.58-3.9a1 1 0 0 0 0-1.83ZM22 17.65l-9.17 4.16a2 2 0 0 1-1.66 0L2 17.65M22 12.65l-9.17 4.16a2 2 0 0 1-1.66 0L2 12.65")
     val book = Ic("M2 3h6a4 4 0 0 1 4 4v14a3 3 0 0 0-3-3H2zM22 3h-6a4 4 0 0 0-4 4v14a3 3 0 0 1 3-3h7z")
+    /** 拆书：一本书加一面放大镜。 */
+    val novel = Ic("M14 4H6.5A2.5 2.5 0 0 0 4 6.5v11A2.5 2.5 0 0 0 6.5 20H11M4 17.5A2.5 2.5 0 0 1 6.5 15H10M18.6 18.6l2.4 2.4", circles = listOf(floatArrayOf(16f, 16f, 3.2f)))
     val flow = Ic("M5 3h4a2 2 0 0 1 2 2v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2ZM7 11v4a2 2 0 0 0 2 2h4M15 13h4a2 2 0 0 1 2 2v4a2 2 0 0 1-2 2h-4a2 2 0 0 1-2-2v-4a2 2 0 0 1 2-2Z")
     val pkg = Ic("M11 21.73a2 2 0 0 0 2 0l7-4A2 2 0 0 0 21 16V8a2 2 0 0 0-1-1.73l-7-4a2 2 0 0 0-2 0l-7 4A2 2 0 0 0 3 8v8a2 2 0 0 0 1 1.73zM12 22V12M3.29 7 12 12l8.71-5M7.5 4.27l9 5.15")
     val eraser = Ic("m7 21-4.3-4.3c-1-1-1-2.5 0-3.4l9.6-9.6c1-1 2.5-1 3.4 0l5.6 5.6c1 1 1 2.5 0 3.4L13 21M22 21H7M5 11l9 9")
@@ -343,7 +345,29 @@ object ChatTools {
             val picked = (cid?.let { WorldBooks.convPick(it) } ?: AssistantExt.of(p).worldBooks).count { id -> WorldBooks.books.any { it.id == id } }
             ToolRow(TI.book, "世界书", onLong = { done { go?.invoke("worldbook") } }, onClick = { sheet.close(); scope.launch { delay(230); ChatSheets.worldBooks(cid); open = true } }) { Count(picked, WorldBooks.books.size) }
         }
+        // 拆书（照世界书那一行）：点开勾这位助理 / 这个对话用哪几本；长按打开拆书页；还没书时直接去导入
+        if (Chaishu.books.isNotEmpty())
+            ToolRow(TI.novel, "拆书", onLong = { done { Chaishu.open = true } }, onClick = { next { ChaishuSheet(c) } }) { Count(Chaishu.count(p, cid), Chaishu.books.size) }
+        else ToolRow(TI.novel, "拆书", onClick = { done { Chaishu.open = true } })
         ToolRow(TI.flow, "上下文管理", onClick = { next { ContextSheet(c) } })
+    }
+
+    // 拆书：每本一个开关（Kelivo world_book_sheet 的样子）；助理开着「独立对话指令注入」时只管这个对话
+    @Composable
+    private fun ChaishuSheet(c: Ctx) {
+        val p = Memory.active
+        val cid = c.chat.convId
+        val picked = Chaishu.picked(p, cid).toSet()
+        KSheetTitle("拆书 (${picked.size}/${Chaishu.books.size})") { if (Chaishu.scoped(p, cid)) KTag("仅当前对话", true) }
+        KCard {
+            Chaishu.books.forEachIndexed { i, b ->
+                val sub = listOfNotNull("${b.chapters} ${b.unit}", if (b.people > 0) "${b.people} 人" else null, if (b.done) null else "没分析完").joinToString(" · ")
+                KRow(b.title, sub = sub, divider = i > 0, onClick = { Chaishu.toggle(p, cid, b.id) }) { KSwitch(b.id in picked, b.title) { Chaishu.toggle(p, cid, b.id) } }
+            }
+        }
+        Txt("勾上的书，助理写作时能查人物、对白和原文；对话里提到书中人名，角色卡自动带上。", K.sub, 12.5.sp, Modifier.padding(horizontal = 6.dp, vertical = 2.dp))
+        Spacer(Modifier.height(14.dp))
+        KButton("打开拆书") { done { Chaishu.open = true } }
     }
 
     // 此对话的技能（conversation_skills_sheet）

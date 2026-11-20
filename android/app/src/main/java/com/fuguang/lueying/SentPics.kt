@@ -27,7 +27,7 @@ import java.net.URL
  * 每张一格先弹跳、拿到变原图比例、小球往上弹把图带出来；拿不到的缩掉不存；SVG 用 AndroidSVG 画成 PNG）。
  * 图从哪来：网页上的图片地址（搜网页、打开网页时拿到的）、data:image、photo:1（对方最近发来的那张照片）、她以前发过的 pic: 图。
  * 下载下来存在 files/pics/<批次>/<序号>（原样字节，不带扩展名，用的时候看文件头）；说明存在旁边的 <序号>.cap。
- * 消息里和羽的笔记图一样记在 imgs 里，写成 "pic:<批次>/<序号>"；回复下面画成一张大图或两列方块（NoteImages.kt 的 NoteImageRow）。
+ * 消息里记在 imgs 里，写成 "pic:<批次>/<序号>"；回复下面画成一张大图或两列方块（NoteImages.kt 的 NoteImageRow）。
  * PDF / Word 里的 ![说明](地址) 也走这里的 fetch + prepare 把图拿下来放进去（SentFiles.kt）。
  */
 object SentPics {

@@ -107,62 +107,18 @@ private fun RowBody(title: String, sub: String, glyph: @Composable () -> Unit, s
 }
 
 /**
- * 羽：连接会跳到羽那边授权，回来再查一次状态。
- * 第 379 版：「连接」按钮自己变形——「等授权」→ 回来后「已连接 · N 篇笔记」或「没连上 · 点我重试」；
- * 连上了停一会儿再换成「● 已连接」，两种样子交叉过渡。
+ * 拆书：书架入口。点开盖上拆书页（卡片留在下面，返回时还在）。
+ * 副标题说这位助理在用哪本；用不用在聊天 ＋ › 拆书 里勾（照 Kelivo：按助理 / 按对话）。
  */
 @Composable
-internal fun MineYuRow(i: Int, t: Float) {
-    val scope = rememberCoroutineScope()
-    androidx.lifecycle.compose.LifecycleResumeEffect(Unit) {
-        scope.launch { Yu.refresh() }
-        onPauseOrDispose { }
-    }
-    val morph = androidx.compose.runtime.remember { Morph() }
-    var back by androidx.compose.runtime.remember { androidx.compose.runtime.mutableStateOf<kotlinx.coroutines.CompletableDeferred<Unit>?>(null) }
-    val launcher = androidx.activity.compose.rememberLauncherForActivityResult(
-        androidx.activity.result.contract.ActivityResultContracts.StartActivityForResult(),
-    ) { back?.complete(Unit); scope.launch { Yu.refresh() } }
-    val state = Yu.state
-    val sub = when (state) { "on" -> "助理可以查阅 ${Yu.notes} 篇笔记"; "missing" -> "需要先安装羽"; else -> "让助理读取你的笔记" }
-    Box(Modifier.fillMaxWidth().mineRise(i, t).background(CardBlock, RoundedCornerShape(16.dp))) {
-        RowBody("羽", sub, glyph = { Txt("羽", warm, 17.sp, family = Serif) }) {
-            // 按钮正在报结果时先不换样子
-            val face = when { morph.running -> "btn"; state == "on" -> "on"; state == "missing" -> "missing"; else -> "btn" }
-            AnimatedContent(
-                face,
-                transitionSpec = { (fadeIn(tween(240, 60)) togetherWith fadeOut(tween(140))) using SizeTransform(clip = false) },
-                contentAlignment = Alignment.CenterEnd,
-                label = "yuFace",
-            ) { f ->
-                when (f) {
-                    "on" -> Row(verticalAlignment = Alignment.CenterVertically) {
-                        Box(Modifier.size(6.dp).background(warm, CircleShape))
-                        Spacer(Modifier.width(7.dp))
-                        Txt("已连接", Page.muted, 13.sp)
-                    }
-                    "missing" -> Txt("未安装", Page.muted, 13.sp)
-                    else -> MorphPill(morph, "连接", null, onClick = {
-                        scope.launch {
-                            morph.run("等授权", revert = false) {
-                                val d = kotlinx.coroutines.CompletableDeferred<Unit>(); back = d
-                                if (runCatching { launcher.launch(Yu.connectIntent()) }.isFailure) {
-                                    back = null; Yu.refresh()
-                                    return@run Morph.Bad("打不开羽", "先装上")
-                                }
-                                d.await(); back = null
-                                Yu.refresh()
-                                if (Yu.state == "on") Morph.Ok("已连接", "${Yu.notes} 篇笔记") else Morph.Bad("没连上")
-                            }
-                            // 换成「● 已连接」的交叉过渡走完再复位，免得淡出那一下露出「连接」
-                            kotlinx.coroutines.delay(320); morph.reset()
-                        }
-                    }, primary = true, small = true)
-                }
-            }
-        }
+internal fun MineChaishuRow(i: Int, t: Float) {
+    val n = Chaishu.books.size
+    MineRow(i, t, "拆书", Chaishu.mineSub(Memory.active), { Chaishu.open = true }, glyph = { Txt("拆", warm, 17.sp, family = Serif) }) {
+        if (n > 0) { Txt("$n 本", Page.muted, 13.sp); Spacer(Modifier.width(4.dp)) }
+        SvgIcon(chaishuChev, Page.muted, 16.dp, stroke = 1.8f)
     }
 }
+private val chaishuChev = Ic("M9.5 6l6 6-6 6")
 
 /** Telegram：在长条里登录过就显示是谁，能退出；没登录过不起 TDLib（省电）。退出要点两下（第一下变「确认退出」）。 */
 @Composable

@@ -294,7 +294,7 @@ object AssistantApi {
 }
 
 /** 一条聊天消息。role = "user" / "assistant"。 */
-/** files：你发来的照片和文件（Attach.kt 的引用）。imgs：这条回复里引用到的羽的笔记图片，每项是 "笔记id/图片id"。works：这条回复里做的作品 id，workAt：每张卡插在正文第几个字后面（照她做的先后，旧记录没有就都在最后）。steps：这轮用过的工具（思考过程时间线）。 */
+/** files：你发来的照片和文件（Attach.kt 的引用）。imgs：这条回复里的图片引用（SentPics 的 "pic:…"）。works：这条回复里做的作品 id，workAt：每张卡插在正文第几个字后面（照她做的先后，旧记录没有就都在最后）。steps：这轮用过的工具（思考过程时间线）。 */
 data class ChatMsg(val role: String, val text: String, val think: String = "", val imgs: List<String> = emptyList(), val at: Long = System.currentTimeMillis(), val works: List<String> = emptyList(), val steps: List<ToolStep> = emptyList(), val clips: List<String> = emptyList(), val files: List<String> = emptyList(), val workAt: List<Int> = emptyList(),
     /** 这条是哪家答的（定思考样式）；旧记录是空的。 */ val pid: String = "",
     /** 想了多久（毫秒）；旧记录是 0。 */ val thinkMs: Long = 0,
@@ -366,6 +366,9 @@ private fun midTurn(q: String) = "（你在忙的时候，${Memory.userCall}又�
 
 /** 工具结果：文字，加上要给模型看的图片。 */
 class ToolOut(val text: String, val images: List<ToolImage> = emptyList(), val failed: Boolean = false)
+
+/** 给模型的一个工具：名字、说明、参数的 JSON Schema。 */
+class ToolSpec(val name: String, val description: String, val schema: org.json.JSONObject)
 class ToolImage(val mime: String, val base64: String, val caption: String = "")
 
 /**
