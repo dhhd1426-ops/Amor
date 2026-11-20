@@ -848,21 +848,6 @@ fun ChatPage(
       Box(Modifier.fillMaxSize()) {
         WhaleHooks(chat)
         SpeechHooks(chat)
-        if (hello) {
-            Box(
-                Modifier.fillMaxSize()
-                    .windowInsetsPadding(WindowInsets.safeDrawing.only(WindowInsetsSides.Top + WindowInsetsSides.Horizontal))
-                    .windowInsetsPadding(WindowInsets.navigationBars.only(WindowInsetsSides.Bottom))
-                    .padding(
-                        start = side,
-                        end = side,
-                        top = topGap + with(density) { headerHeight.toDp() },
-                        bottom = bottomGap + 64.dp,
-                    )
-                    .graphicsLayer { alpha = 1f - dressA },
-                contentAlignment = Alignment.Center,
-            ) { ChatHello(compact, store, chat) }
-        }
         Column(
             Modifier
                 .fillMaxSize()
@@ -879,6 +864,8 @@ fun ChatPage(
                     .graphicsLayer { alpha = 1f - dressA * (if (hello) 1f else .75f) },
                 contentAlignment = Alignment.Center,
             ) {
+                // 问候放在标题和输入框之间这一块：键盘升起、输入框变两行时，这块跟着变矮，问候始终在剩下空间的正中间（逐帧跟键盘走）
+                if (hello) ChatHello(compact, store, chat)
                 if (!hello) Conversation(chat, store, compact, flight, onSetup = onSetup, onRetry = { chat.retry(scope, store) }, onThink = { thinkOf = it; thinkOpen = true }, onImage = { viewing = it }, onWork = { workOpen = it },
                     pressed = press?.index ?: -1, onLong = { if (!chat.busy || it.index < chat.messages.size) press = it })
                 WhaleTouch()

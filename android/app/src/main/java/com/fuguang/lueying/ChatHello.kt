@@ -4,7 +4,9 @@ import androidx.compose.animation.core.CubicBezierEasing
 import androidx.compose.animation.core.animateFloatAsState
 import androidx.compose.animation.core.snap
 import androidx.compose.animation.core.tween
+import androidx.compose.foundation.layout.BoxWithConstraints
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
@@ -75,13 +77,17 @@ internal fun ChatHello(compact: Boolean, store: AssistantStore, chat: ChatState)
     )
     val big = if (compact) 116f else 128f
     val small = if (compact) 72f else 84f
+    // 键盘升起后空间变矮：标志跟着剩下的高度缩，问候那一行始终放得下（高度逐帧跟键盘走，标志也就逐帧缩）
+    BoxWithConstraints(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
+    // 留给标志的高度（扣掉问候那行和间距），换成标志宽度
+    val room = ((maxHeight.value - (if (compact) 64f else 72f)) * VignetteInk.W / VignetteInk.H).coerceAtLeast(48f)
     Column(
         horizontalAlignment = Alignment.CenterHorizontally,
         modifier = Modifier.padding(horizontal = 8.dp).fillMaxHeight().padding(bottom = (8f * stage).dp),
     ) {
         // 三段空白按比例分：stage=0 时上下各半、中间没有（居中）；stage=1 时全给中间（一上一下）
         Spacer(Modifier.weight(1.001f - stage))
-        VignetteMark((big + (small - big) * stage).dp, Skin.accent)
+        VignetteMark(minOf(big + (small - big) * stage, room).dp, Skin.accent)
         Spacer(Modifier.height(6.dp))
         Spacer(Modifier.weight(.001f + 2f * stage))
         val text = line.orEmpty()
@@ -123,5 +129,6 @@ internal fun ChatHello(compact: Boolean, store: AssistantStore, chat: ChatState)
             maxLines = 1,
         )
         Spacer(Modifier.weight(1.001f - stage))
+    }
     }
 }
