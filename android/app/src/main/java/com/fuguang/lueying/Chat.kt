@@ -1623,6 +1623,27 @@ private fun rememberInputFold(chat: ChatState, pickerOpen: Boolean, density: and
  */
 @Composable
 private fun ModelDrawer(open: Boolean, store: AssistantStore, compact: Boolean, onClose: () -> Unit) {
+    val focus = androidx.compose.ui.platform.LocalFocusManager.current
+    val keyboard = androidx.compose.ui.platform.LocalSoftwareKeyboardController.current
+    val density = LocalDensity.current
+    val ime = WindowInsets.ime
+    var searchFocused by remember { mutableStateOf(false) }
+    var searchOwnsIme by remember { mutableStateOf(false) }
+    LaunchedEffect(ime, density) {
+        snapshotFlow { !searchFocused && ime.getBottom(density) == 0 }.collect { clear ->
+            if (clear) searchOwnsIme = false
+        }
+    }
+    fun releaseSearch() {
+        if (searchFocused) {
+            keyboard?.hide()
+            focus.clearFocus()
+        }
+    }
+    fun closeDrawer() {
+        releaseSearch()
+        onClose()
+    }
     val shown by androidx.compose.animation.core.animateFloatAsState(
         if (open) 1f else 0f, tween(if (open) 320 else 220, easing = androidx.compose.animation.core.CubicBezierEasing(.2f, .8f, .2f, 1f)), label = "drawer",
     )
