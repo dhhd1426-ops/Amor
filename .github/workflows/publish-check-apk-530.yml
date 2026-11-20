@@ -1,0 +1,30 @@
+name: Publish check APK 530
+
+on:
+  push:
+    branches: [release/check-apk-530]
+
+permissions:
+  actions: read
+  contents: write
+
+jobs:
+  publish:
+    runs-on: ubuntu-latest
+    env:
+      GH_TOKEN: ${{ github.token }}
+      GH_REPO: ${{ github.repository }}
+    steps:
+      - name: Verify and publish the existing APK
+        shell: bash
+        run: |
+          set -euo pipefail
+          gh api "repos/$GH_REPO/actions/artifacts/14619195565/zip" > artifact.zip
+          echo "ba1c0d478ac5bd95d4741619c572587a0ba8fb56f7974f2458f02980501bcbfd  artifact.zip" | sha256sum -c
+          unzip -p artifact.zip fuguang-lueying-530.apk > fuguang-lueying-530.apk
+          test -s fuguang-lueying-530.apk
+          unzip -tq fuguang-lueying-530.apk
+          gh release create app-build-530 fuguang-lueying-530.apk \
+            --target 1481164d7e9de0674297f78fc90d2c76c269fffd --prerelease \
+            --title "浮光掠影 App 第 530 版" \
+            --notes "沿用 check 分支通过编译和单元测试的 APK。构建记录：https://github.com/dhhd1426-ops/Amor/actions/runs/44713131141"
