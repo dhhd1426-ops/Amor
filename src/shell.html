@@ -1,0 +1,151 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="theme-color" content="#f4f1e8" media="(prefers-color-scheme: light)">
+<meta name="theme-color" content="#141614" media="(prefers-color-scheme: dark)">
+<title>人物志 · 小说角色工作台</title>
+<style>
+/*STYLE*/
+</style>
+</head>
+<body>
+<div class="app-shell" id="shell">
+<nav id="directory" aria-label="角色目录">
+  <div class="directory-head"><button type="button" class="directory-toggle" id="directoryToggle" aria-label="展开角色目录" aria-expanded="false" title="展开角色目录"><span aria-hidden="true"></span></button><strong class="rail-label">角色目录</strong><span class="count rail-label" id="count"></span></div>
+  <label class="search rail-label"><svg viewBox="0 0 24 24"><circle cx="11" cy="11" r="6.5"/><path d="M16 16l4.5 4.5"/></svg><input id="search" type="search" placeholder="搜姓名、称呼或标签" aria-label="搜索角色" autocomplete="off"></label>
+  <div id="people" class="char-list"></div>
+</nav>
+<div class="reading-pane">
+  <header class="top">
+    <div class="brand"><span class="seal" aria-hidden="true">志</span><b>人物志</b><small>小说角色工作台</small></div>
+    <div class="top-actions">
+      <button class="pill-progress" id="modelPill" hidden aria-haspopup="dialog"><span class="ring"><svg viewBox="0 0 20 20"><circle cx="10" cy="10" r="8"/><circle cx="10" cy="10" r="8" id="pillArc"/></svg></span><span id="pillText"></span></button>
+      <button class="btn" id="settings"><span class="dot" id="engineDot"></span>模型设置</button>
+    </div>
+  </header>
+  <main class="layout">
+    <section class="hero" aria-labelledby="headline">
+      <div class="hero-copy">
+        <div class="eyebrow">小说角色工作台</div>
+        <h1 id="headline">从原文走进人物</h1>
+        <p>导入小说，查看人物档案、关系变化和关键对白。</p>
+        <a class="textlink" href="./sample.html">翻阅《仙宫香妃录》殷洛妍样卡</a>
+      </div>
+      <div class="drop" id="dropbox">
+        <div class="ring-panel" aria-live="polite">
+          <button class="bigring" id="ringDetail" aria-label="查看分段进度">
+            <svg viewBox="0 0 120 120"><circle class="ring-track" cx="60" cy="60" r="52"/><circle class="ring-fill" id="ringFill" cx="60" cy="60" r="52"/><circle class="ring-spin" cx="60" cy="60" r="52"/></svg>
+            <span class="ring-pct" id="ringPct"></span>
+            <svg class="ring-check" viewBox="0 0 24 24"><path d="M5 12.5l4.5 4.5L19 7.5"/></svg>
+          </button>
+          <strong id="ringLine1"></strong>
+          <small id="ringLine2"></small>
+          <small class="ring-note" id="ringNote"></small>
+          <div class="ring-actions"><button class="btn" id="ringStop">停止</button><button class="btn primary" id="ringResume" hidden>继续</button><button class="btn" id="ringClose" hidden>关闭</button></div>
+        </div>
+        <span class="dropicon" aria-hidden="true"><svg viewBox="0 0 24 24"><path d="M12 16V5M7.5 9.5L12 5l4.5 4.5"/><path d="M5 15v4h14v-4"/></svg></span>
+        <strong>导入小说文本</strong>
+        <small id="mode">TXT / Markdown · 支持 6 MB · 本地提取</small>
+        <div class="drop-actions"><label class="btn primary"><span class="desktop-copy">选取文件</span><span class="touch-copy">从手机选文件</span><input type="file" id="file" accept=".txt,.md,.markdown,text/plain,text/markdown" hidden></label><button class="btn" id="paste">粘贴正文</button></div>
+        <small class="desktop-copy">也可以把文件拖到页面任意位置</small>
+      </div>
+    </section>
+    <div id="status" class="status" role="status" aria-live="polite"></div>
+    <section class="panel">
+      <div class="busybar" id="busybar" hidden><span></span></div>
+      <div class="bookline">
+        <div class="bookinfo"><strong id="book"></strong><small id="stats"></small></div>
+        <div class="bookactions"><button class="btn primary" id="runBookModel"><svg viewBox="0 0 24 24"><path d="M12 3l2.2 5.6L20 9.3l-4.5 3.8L17 19l-5-3.2L7 19l1.5-5.9L4 9.3l5.8-.7z"/></svg><span>用模型分析本书</span></button><button class="btn" id="sample">载入示例</button><button class="btn" id="export">导出角色卡</button></div>
+      </div>
+      <nav class="tabs" role="tablist" aria-label="档案视图"><button data-tab="card" role="tab">角色卡</button><button data-tab="graph" role="tab">关系网</button><button data-tab="raw" role="tab">小说原文</button></nav>
+      <div class="view" id="view"></div>
+    </section>
+  </main>
+</div>
+</div>
+
+<aside class="drawer" id="drawer" aria-label="原文出处" hidden>
+  <div class="drawer-head"><h2 id="drawerTitle">原文</h2><button class="icon" data-close-drawer aria-label="关闭"><svg viewBox="0 0 24 24"><path d="M6 6l12 12M18 6L6 18"/></svg></button></div>
+  <div class="drawer-body" id="drawerBody"></div>
+</aside>
+<div class="scrim" id="scrim" hidden></div>
+<div class="dropveil" id="dropOverlay" hidden><div><span class="dropicon big"><svg viewBox="0 0 24 24"><path d="M12 16V5M7.5 9.5L12 5l4.5 4.5"/><path d="M5 15v4h14v-4"/></svg></span><p>松开文件，开始导入小说</p></div></div>
+
+<dialog id="progressDialog" class="sheet">
+  <div class="dlg-head"><h2>模型分析</h2><button class="icon" data-close="progressDialog" aria-label="关闭"><svg viewBox="0 0 24 24"><path d="M6 6l12 12M18 6L6 18"/></svg></button></div>
+  <p class="prog-line" id="progLine"></p>
+  <div class="chunkgrid" id="chunkGrid" aria-hidden="true"></div>
+  <p class="prog-note" id="progNote"></p>
+  <div class="dlg-foot"><button class="btn" id="cancelModel">停止</button></div>
+</dialog>
+
+<dialog id="confirmDialog" class="sheet">
+  <div class="dlg-head"><h2>用模型分析本书</h2></div>
+  <div class="confirm-stats" id="confirmStats"></div>
+  <p class="prog-note" id="confirmNote"></p>
+  <div class="dlg-foot"><button class="btn" data-close="confirmDialog">取消</button><button class="btn primary" id="confirmRun">开始</button></div>
+</dialog>
+
+<dialog id="exportDialog" class="sheet export">
+  <div class="dlg-head"><h2>导出角色卡</h2><button class="icon" data-close="exportDialog" aria-label="关闭"><svg viewBox="0 0 24 24"><path d="M6 6l12 12M18 6L6 18"/></svg></button></div>
+  <div class="export-body">
+    <section id="exportCurrent" class="export-cur">
+      <img id="exportPreview" alt="">
+      <div><h3 id="exportName"></h3><p class="fine">酒馆 SillyTavern 角色卡 · V3（兼容 V2）。人际关系写入角色世界书，聊天里提到对方时自动生效。</p>
+      <div class="export-actions"><button class="btn primary" data-export="png">下载 PNG 卡</button><button class="btn" data-export="json">JSON</button></div></div>
+    </section>
+    <section class="export-row"><span id="exportAllLabel"></span><button class="btn" data-export="zip">打包下载 PNG</button></section>
+    <section class="export-row"><span>全书档案 · Markdown</span><button class="btn" data-export="md">下载</button></section>
+  </div>
+</dialog>
+
+<dialog id="tagEditor" class="sheet small"><form id="tagForm" method="dialog">
+  <div class="dlg-head"><h2 id="tagTitle">添加自定义标签</h2></div>
+  <input id="tagInput" class="field" maxlength="60" placeholder="输入称呼或自定义标签" autocomplete="off">
+  <p class="err" id="tagError" aria-live="polite"></p>
+  <div class="dlg-foot"><button type="button" class="btn" data-close="tagEditor">取消</button><button class="btn primary">添加</button></div>
+</form></dialog>
+
+<dialog id="pasteDialog" class="sheet"><form id="pasteForm" method="dialog">
+  <div class="dlg-head"><h2>粘贴小说正文</h2><button type="button" class="icon" data-close="pasteDialog" aria-label="关闭"><svg viewBox="0 0 24 24"><path d="M6 6l12 12M18 6L6 18"/></svg></button></div>
+  <input id="pasteTitle" class="field" placeholder="作品名" autocomplete="off">
+  <textarea id="pasteText" class="field" required placeholder="粘贴一个场景或多个章节"></textarea>
+  <div class="dlg-foot"><button type="button" class="btn" data-close="pasteDialog">取消</button><button class="btn primary">提取角色</button></div>
+</form></dialog>
+
+<dialog id="settingsDialog" class="sheet"><form id="settingsForm">
+  <div class="dlg-head"><h2 id="apiTitle">模型设置</h2><button type="button" class="icon" data-close="settingsDialog" aria-label="关闭"><svg viewBox="0 0 24 24"><path d="M6 6l12 12M18 6L6 18"/></svg></button></div>
+  <label class="row"><span>供应商</span><select id="provider" class="field"><option value="local">本地提取</option></select></label>
+  <div id="onlineFields" hidden>
+    <label class="row" id="protocolRow" hidden><span>协议</span><select id="protocol" class="field"><option value="chat">OpenAI Chat Completions</option><option value="responses">OpenAI Responses</option><option value="claude">Anthropic Messages</option><option value="gemini">Gemini 原生 API</option></select></label>
+    <label class="row"><span>地址</span><input id="endpoint" class="field" inputmode="url" autocomplete="off" spellcheck="false"></label>
+    <label class="row"><span>密钥</span><input id="token" class="field" type="password" autocomplete="off" spellcheck="false"></label>
+    <button type="button" class="btn wide" id="testApi"><span id="testLabel">测试 API 连接</span></button>
+    <p class="api-status" id="apiStatus" aria-live="polite"></p>
+    <div id="modelRow" hidden>
+      <label class="row"><span>模型</span><select id="model" class="field"></select></label>
+      <details class="adv" id="genParams"><summary>生成参数</summary>
+        <label class="row"><span>并发</span><input id="concurrency" class="field" type="number" min="1" max="8" step="1" placeholder="3"></label>
+        <label class="row"><span>输出上限</span><input id="outTokens" class="field" type="number" min="1" step="1" placeholder="协议默认"></label>
+        <label class="row"><span>温度</span><input id="temp" class="field" type="number" min="0" max="2" step="0.1" placeholder="模型默认"></label>
+      </details>
+      <label class="check"><input type="checkbox" id="longModel" checked><span>也用模型分析长篇（超过 512 KiB）</span></label>
+      <p class="fine">保存时用一句内置示例检验模型，可能产生少量费用。导入后，正文会发到上面的地址。密钥只保留在本页。</p>
+    </div>
+  </div>
+  <div class="dlg-foot"><button type="button" class="btn" data-close="settingsDialog">取消</button><button class="btn primary" id="saveApi">保存</button></div>
+</form></dialog>
+
+<script>
+/*PROVIDERS*/
+</script>
+<script id="localEngine">
+/*ENGINE*/
+</script>
+<script>
+/*APP*/
+</script>
+</body>
+</html>

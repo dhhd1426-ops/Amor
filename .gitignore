@@ -1,0 +1,8 @@
+# 签名密钥绝不入库
+*.jks
+*.keystore
+# 构建产物与工具
+out/
+.tools/
+prototype/
+__pycache__/
