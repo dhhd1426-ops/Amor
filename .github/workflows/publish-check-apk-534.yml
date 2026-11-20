@@ -1,0 +1,30 @@
+name: Publish check APK 534
+
+on:
+  push:
+    branches: [release/check-apk-534]
+
+permissions:
+  actions: read
+  contents: write
+
+jobs:
+  publish:
+    runs-on: ubuntu-latest
+    env:
+      GH_TOKEN: ${{ github.token }}
+      GH_REPO: ${{ github.repository }}
+    steps:
+      - name: Verify and publish the existing APK
+        shell: bash
+        run: |
+          set -euo pipefail
+          gh api "repos/$GH_REPO/actions/artifacts/14626862399/zip" > artifact.zip
+          echo "f8d9665f255908f9dadde350f51772c24fbe677cac336172681ace22be513c47  artifact.zip" | sha256sum -c
+          unzip -p artifact.zip fuguang-lueying-534.apk > fuguang-lueying-534.apk
+          test -s fuguang-lueying-534.apk
+          unzip -tq fuguang-lueying-534.apk
+          gh release create app-build-534 fuguang-lueying-534.apk \
+            --target 83a6af95b5878e99ecbb473b47cefbad427dbbee --prerelease \
+            --title "浮光掠影 App 第 534 版" \
+            --notes "沿用 check 分支通过编译的 APK。世界书照 Kelivo 改成一页（折叠、拖动排序、长按操作、多选复制移动）；去掉输入框旁的世界书按钮；含第 531 版的选模型与添加供应商。构建记录：https://github.com/dhhd1426-ops/Amor/actions/runs/44731813713"
