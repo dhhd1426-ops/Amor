@@ -30,14 +30,14 @@ function cardData(p){
     const quote=r.scenes.filter(s=>s.speaker===p.name).slice(-2).map(s=>'{{char}}对'+r.to+'说：“'+s.quote+'”').join('\n');
     return{keys:keys.length?keys:[r.to],content:clip('{{char}}与'+r.to+'：'+r.type+'。'+(att?'\n{{char}}对'+r.to+'的态度：\n'+att:'')+(quote?'\n'+quote:''),900),extensions:{},enabled:true,insertion_order:100+i,case_sensitive:false,use_regex:false,name:r.to,priority:10,id:i,comment:p.name+' → '+r.to,selective:false,secondary_keys:[],constant:false,position:'after_char'};
   });
-  const tags=unique(['人物志','《'+book+'》',...call.slice(0,6),...(p.customTags||[])]);
+  const tags=unique(['小说分析','《'+book+'》',...call.slice(0,6),...(p.customTags||[])]);
   const srcs=['gender','age','height','build','personality','background'].map(k=>p.fields[k]).filter(Boolean).flatMap(f=>f.sources||[f.line]);
   return{
     name:p.name,description:desc.join('\n'),personality:fieldText(p.fields.personality),
     scenario:'故事出自《'+book+'》。',first_mes:first,mes_example:mes,
-    creator_notes:'由「人物志」从《'+book+'》'+(state.engine==='model'?'经模型分析':'本地提取')+'整理。资料依据原文'+(srcs.length?'第 '+unique(srcs).sort((a,b)=>a-b).slice(0,12).join('、')+' 行等':'')+'，可在酒馆内继续修改。',
+    creator_notes:'由「小说分析」从《'+book+'》'+(state.engine==='model'?'经模型分析':'本地提取')+'整理。资料依据原文'+(srcs.length?'第 '+unique(srcs).sort((a,b)=>a-b).slice(0,12).join('、')+' 行等':'')+'，可在酒馆内继续修改。',
     system_prompt:'',post_history_instructions:'',alternate_greetings:lines.slice(1,4).map(say),
-    tags,creator:'人物志',character_version:'1.0',
+    tags,creator:'小说分析',character_version:'1.0',
     character_book:entries.length?{name:'《'+book+'》· '+p.name+'的人际',description:'',scan_depth:4,token_budget:1024,recursive_scanning:false,extensions:{},entries}:undefined,
     extensions:{renwuzhi:{book,engine:state.engine,version:13}}
   };

@@ -14,5 +14,5 @@ java -jar "$TOOLS/apktool.jar" b out/app -o out/unsigned.apk
 : "${KS_PASS:?请用 KS_PASS 提供密钥口令}"
 java -jar "$TOOLS/signer.jar" -a out/unsigned.apk --ks "$KS" --ksAlias "${KS_ALIAS:-renwuzhi}" --ksPass "$KS_PASS" --ksKeyPass "$KS_PASS" -o out/signed
 VER=$(grep versionName android/apktool.yml | sed "s/.*'\(.*\)'.*/\1/")
-cp out/signed/*-aligned-signed.apk "out/renwuzhi-v$VER.apk"
-echo "完成：out/renwuzhi-v$VER.apk"
+cp out/signed/*-aligned-signed.apk "out/xiaoshuo-fenxi-v$VER.apk"
+echo "完成：out/xiaoshuo-fenxi-v$VER.apk"

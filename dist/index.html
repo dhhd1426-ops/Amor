@@ -5,7 +5,7 @@
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <meta name="theme-color" content="#f4f1e8" media="(prefers-color-scheme: light)">
 <meta name="theme-color" content="#141614" media="(prefers-color-scheme: dark)">
-<title>人物志 · 小说角色工作台</title>
+<title>小说分析 · 角色工作台</title>
 <style>
 :root{
   color-scheme:light dark;
@@ -415,7 +415,7 @@ dialog.sheet.export{width:min(560px,calc(100vw - 24px))}
 </nav>
 <div class="reading-pane">
   <header class="top">
-    <div class="brand"><span class="seal" aria-hidden="true">志</span><b>人物志</b><small>小说角色工作台</small></div>
+    <div class="brand"><span class="seal" aria-hidden="true">析</span><b>小说分析</b><small>角色工作台</small></div>
     <div class="top-actions">
       <button class="pill-progress" id="modelPill" hidden aria-haspopup="dialog"><span class="ring"><svg viewBox="0 0 20 20"><circle cx="10" cy="10" r="8"/><circle cx="10" cy="10" r="8" id="pillArc"/></svg></span><span id="pillText"></span></button>
       <button class="btn" id="settings"><span class="dot" id="engineDot"></span>模型设置</button>
@@ -1918,7 +1918,7 @@ function setDir(open){
 }
 /* ---------- 导出 ---------- */
 function exportCards(){
-  const lines=['# '+state.title+' · 人物志'];
+  const lines=['# '+state.title+' · 小说分析'];
   for(const p of state.people){
     lines.push('','## '+p.name,'');
     if(p.customTags?.length)lines.push('自定义标签　'+p.customTags.join('、'),'');
@@ -1938,7 +1938,7 @@ function exportCards(){
     }
   }
   const href=URL.createObjectURL(new Blob([lines.join('\n')],{type:'text/markdown;charset=utf-8'}));
-  const link=document.createElement('a');link.href=href;link.download=state.title+'-人物志.md';link.click();
+  const link=document.createElement('a');link.href=href;link.download=state.title+'-小说分析.md';link.click();
   setTimeout(()=>URL.revokeObjectURL(href),3000);
 }
 
@@ -2166,14 +2166,14 @@ function cardData(p){
     const quote=r.scenes.filter(s=>s.speaker===p.name).slice(-2).map(s=>'{{char}}对'+r.to+'说：“'+s.quote+'”').join('\n');
     return{keys:keys.length?keys:[r.to],content:clip('{{char}}与'+r.to+'：'+r.type+'。'+(att?'\n{{char}}对'+r.to+'的态度：\n'+att:'')+(quote?'\n'+quote:''),900),extensions:{},enabled:true,insertion_order:100+i,case_sensitive:false,use_regex:false,name:r.to,priority:10,id:i,comment:p.name+' → '+r.to,selective:false,secondary_keys:[],constant:false,position:'after_char'};
   });
-  const tags=unique(['人物志','《'+book+'》',...call.slice(0,6),...(p.customTags||[])]);
+  const tags=unique(['小说分析','《'+book+'》',...call.slice(0,6),...(p.customTags||[])]);
   const srcs=['gender','age','height','build','personality','background'].map(k=>p.fields[k]).filter(Boolean).flatMap(f=>f.sources||[f.line]);
   return{
     name:p.name,description:desc.join('\n'),personality:fieldText(p.fields.personality),
     scenario:'故事出自《'+book+'》。',first_mes:first,mes_example:mes,
-    creator_notes:'由「人物志」从《'+book+'》'+(state.engine==='model'?'经模型分析':'本地提取')+'整理。资料依据原文'+(srcs.length?'第 '+unique(srcs).sort((a,b)=>a-b).slice(0,12).join('、')+' 行等':'')+'，可在酒馆内继续修改。',
+    creator_notes:'由「小说分析」从《'+book+'》'+(state.engine==='model'?'经模型分析':'本地提取')+'整理。资料依据原文'+(srcs.length?'第 '+unique(srcs).sort((a,b)=>a-b).slice(0,12).join('、')+' 行等':'')+'，可在酒馆内继续修改。',
     system_prompt:'',post_history_instructions:'',alternate_greetings:lines.slice(1,4).map(say),
-    tags,creator:'人物志',character_version:'1.0',
+    tags,creator:'小说分析',character_version:'1.0',
     character_book:entries.length?{name:'《'+book+'》· '+p.name+'的人际',description:'',scan_depth:4,token_budget:1024,recursive_scanning:false,extensions:{},entries}:undefined,
     extensions:{renwuzhi:{book,engine:state.engine,version:13}}
   };

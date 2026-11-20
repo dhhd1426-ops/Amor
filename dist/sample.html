@@ -4,7 +4,7 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width,initial-scale=1">
 <meta name="theme-color" content="#f7f6f0">
-<title>殷洛妍 · 人物志</title>
+<title>殷洛妍 · 小说分析</title>
 <style>
 :root{color-scheme:light;--paper:#f7f6f0;--panel:#fffef9;--ink:#232c29;--sub:#545e58;--muted:#697069;--red:#963e32;--line:#d4d6ca;--pale:#edece3;--serif:"Songti SC","Noto Serif CJK SC","Noto Serif SC","Source Han Serif CN","STSong","SimSun",serif;--sans:Inter,-apple-system,BlinkMacSystemFont,"PingFang SC","Microsoft YaHei",sans-serif}
 *{box-sizing:border-box}body{margin:0;color:var(--ink);background:var(--paper);font:16px/1.76 var(--sans)}button,a,summary{touch-action:manipulation}button,summary{font:inherit}button{cursor:pointer}button:focus-visible,a:focus-visible,summary:focus-visible{outline:3px solid var(--red);outline-offset:4px}button{color:inherit}a{color:var(--red)}[hidden]{display:none!important}
@@ -18,7 +18,7 @@ dialog{background:var(--panel);color:var(--ink);border:1px solid var(--line);bor
 </style>
 </head>
 <body>
-<header class="bar"><div class="shell"><div class="brand"><span class="mark" aria-hidden="true">志</span>人物志</div><a class="app-link" href="./index.html">导入自己的小说</a></div></header>
+<header class="bar"><div class="shell"><div class="brand"><span class="mark" aria-hidden="true">析</span>小说分析</div><a class="app-link" href="./index.html">导入自己的小说</a></div></header>
 <main class="shell">
 <section class="hero" aria-labelledby="name"><div class="hero-grid"><div><div class="bookline"><span class="book">《仙宫香妃录》</span><span class="sample">原文校读样卡</span></div><h1 id="name">殷洛妍</h1><p id="subtitle"></p><a href="./extraction.html" style="display:inline-block;margin-top:9px;text-underline-offset:3px;font-size:14px">对照自动提取结果</a></div><p class="intro" id="intro"></p></div></section>
 <div class="tabs" role="tablist" aria-label="阅读内容"><button type="button" id="tab-card" role="tab" aria-controls="card" aria-selected="true">角色卡</button><button type="button" id="tab-rel" role="tab" aria-controls="relations" aria-selected="false" tabindex="-1">关系与对白<span class="count" id="relcount"></span></button></div>
@@ -44,7 +44,7 @@ dialog{background:var(--panel);color:var(--ink);border:1px solid var(--line);bor
     id('intro').textContent = '样卡资料未能载入，请重新打开预览。';
     return;
   }
-  document.title = data.name + ' · 人物志';
+  document.title = data.name + ' · 小说分析';
   id('name').textContent = data.name;
   id('subtitle').textContent = data.subtitle;
   id('intro').textContent = data.summary;

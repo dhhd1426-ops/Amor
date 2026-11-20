@@ -1,4 +1,4 @@
-# 人物志 · 小说角色工作台（v13.1）
+# 小说分析 · 角色工作台（v13.2）
 
 放入一部 6 MB 以内的 TXT / Markdown 小说，自动生成带原文出处的角色卡：身份、形貌、性情、背景、剧情称呼、人际态度与对白，可导出为酒馆（SillyTavern）角色卡。网页与安卓 App 共用同一份页面。
 
@@ -22,12 +22,12 @@
 
 ```bash
 python3 build.py                                   # 生成 dist/index.html 与 prototype/index.html
-KS=~/keys/renwuzhi.jks KS_PASS=*** ./build-apk.sh  # 生成 out/renwuzhi-v<版本>.apk
+KS=~/keys/renwuzhi.jks KS_PASS=*** ./build-apk.sh  # 生成 out/xiaoshuo-fenxi-v<版本>.apk
 ```
 
 APK 构建只需 Java 17+ 与 Python 3；脚本会从 GitHub Releases 下载 Apktool 2.12.1 与 uber-apk-signer 1.3.0。目标 Android 15（API 35），最低 Android 7.0（API 24）。升级版本时修改 `android/apktool.yml` 的 `versionCode` 与 `versionName`。
 
-签名密钥不入库。以后发布的新版必须用同一个密钥签名，才能覆盖安装、保留数据。
+安卓包名仍为 `com.renwuzhi.app`（改名前已安装的版本可直接覆盖升级）。签名密钥不入库。以后发布的新版必须用同一个密钥签名，才能覆盖安装、保留数据。
 
 ## 分析机制
 

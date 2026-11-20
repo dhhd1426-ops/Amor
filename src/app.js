@@ -657,7 +657,7 @@ function setDir(open){
 }
 /* ---------- 导出 ---------- */
 function exportCards(){
-  const lines=['# '+state.title+' · 人物志'];
+  const lines=['# '+state.title+' · 小说分析'];
   for(const p of state.people){
     lines.push('','## '+p.name,'');
     if(p.customTags?.length)lines.push('自定义标签　'+p.customTags.join('、'),'');
@@ -677,7 +677,7 @@ function exportCards(){
     }
   }
   const href=URL.createObjectURL(new Blob([lines.join('\n')],{type:'text/markdown;charset=utf-8'}));
-  const link=document.createElement('a');link.href=href;link.download=state.title+'-人物志.md';link.click();
+  const link=document.createElement('a');link.href=href;link.download=state.title+'-小说分析.md';link.click();
   setTimeout(()=>URL.revokeObjectURL(href),3000);
 }
 
