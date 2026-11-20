@@ -1,0 +1,30 @@
+name: Publish check APK 535
+
+on:
+  push:
+    branches: [release/check-apk-535]
+
+permissions:
+  actions: read
+  contents: write
+
+jobs:
+  publish:
+    runs-on: ubuntu-latest
+    env:
+      GH_TOKEN: ${{ github.token }}
+      GH_REPO: ${{ github.repository }}
+    steps:
+      - name: Verify and publish the existing APK
+        shell: bash
+        run: |
+          set -euo pipefail
+          gh api "repos/$GH_REPO/actions/artifacts/14633640887/zip" > artifact.zip
+          echo "ef70eb48daa69dde2c368052e5e7b63236477bf151c7e8e13091ec0185a5d7fa  artifact.zip" | sha256sum -c
+          unzip -p artifact.zip fuguang-lueying-535.apk > fuguang-lueying-535.apk
+          test -s fuguang-lueying-535.apk
+          unzip -tq fuguang-lueying-535.apk
+          gh release create app-build-535 fuguang-lueying-535.apk \
+            --target 24ccdf8d43a48c9a6f4f5029656b06fa4a268a6a --prerelease \
+            --title "浮光掠影 App 第 535 版" \
+            --notes "沿用 check 分支通过编译的 APK。新对话问候跟着键盘移到剩余空间正中；含第 534 版的世界书改版与第 531 版的选模型、添加供应商。构建记录：https://github.com/dhhd1426-ops/Amor/actions/runs/44745328351"
