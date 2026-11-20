@@ -1,0 +1,186 @@
+package com.fuguang.lueying
+
+import androidx.activity.compose.BackHandler
+import androidx.compose.animation.core.Animatable
+import androidx.compose.animation.AnimatedContent
+import androidx.compose.animation.SizeTransform
+import androidx.compose.animation.core.VectorConverter
+import androidx.compose.animation.core.animateDpAsState
+import androidx.compose.animation.core.snap
+import androidx.compose.animation.fadeIn
+import androidx.compose.animation.fadeOut
+import androidx.compose.animation.slideInHorizontally
+import androidx.compose.animation.slideOutHorizontally
+import androidx.compose.animation.togetherWith
+import androidx.compose.foundation.layout.imePadding
+import androidx.compose.foundation.layout.wrapContentHeight
+import androidx.compose.runtime.CompositionLocalProvider
+import androidx.compose.animation.core.LinearEasing
+import androidx.compose.animation.core.spring
+import androidx.compose.animation.core.tween
+import androidx.compose.foundation.background
+import androidx.compose.foundation.gestures.detectTapGestures
+import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.BoxWithConstraints
+import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.Spacer
+import androidx.compose.foundation.layout.WindowInsets
+import androidx.compose.foundation.layout.asPaddingValues
+import androidx.compose.foundation.layout.fillMaxSize
+import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.heightIn
+import androidx.compose.foundation.layout.navigationBars
+import androidx.compose.foundation.layout.offset
+import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.layout.statusBars
+import androidx.compose.foundation.layout.width
+import androidx.compose.foundation.layout.widthIn
+import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.shape.CircleShape
+import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.foundation.verticalScroll
+import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberCoroutineScope
+import androidx.compose.runtime.setValue
+import androidx.compose.ui.Alignment
+import androidx.compose.ui.Modifier
+import androidx.compose.ui.geometry.Offset
+import androidx.compose.ui.geometry.isSpecified
+import androidx.compose.ui.graphics.Brush
+import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.TransformOrigin
+import androidx.compose.ui.graphics.graphicsLayer
+import androidx.compose.ui.hapticfeedback.HapticFeedbackType
+import androidx.compose.ui.input.pointer.pointerInput
+import androidx.compose.ui.layout.onSizeChanged
+import androidx.compose.ui.platform.LocalDensity
+import androidx.compose.ui.platform.LocalHapticFeedback
+import androidx.compose.ui.unit.Dp
+import androidx.compose.ui.unit.dp
+import androidx.compose.ui.unit.lerp
+import androidx.compose.ui.unit.min
+import androidx.compose.ui.unit.sp
+import kotlinx.coroutines.launch
+
+/* 「我的」卡片首页的行：色块、左边方形图标、右边状态。 */
+
+private val warm: Color get() = Skin.accent
+private val warmInk: Color get() = Skin.onAccent
+
+@Composable
+internal fun MineRow(
+    i: Int, t: Float, title: String, sub: String, onClick: () -> Unit,
+    glyph: @Composable () -> Unit,
+    subSlot: (@Composable () -> Unit)? = null,
+    trailing: @Composable () -> Unit,
+) {
+    PressSurface(onClick, Modifier.fillMaxWidth().mineRise(i, t), shape = RoundedCornerShape(16.dp), pressScale = .985f, label = title) {
+        RowBody(title, sub, glyph, subSlot, trailing)
+    }
+}
+
+@Composable
+private fun RowBody(title: String, sub: String, glyph: @Composable () -> Unit, subSlot: (@Composable () -> Unit)? = null, trailing: @Composable () -> Unit) {
+    Row(
+        Modifier.fillMaxWidth().heightIn(min = 56.dp).padding(horizontal = 12.dp, vertical = 10.dp),
+        verticalAlignment = Alignment.CenterVertically,
+    ) {
+        Box(Modifier.size(38.dp).background(Skin.accent.copy(alpha = .1f), RoundedCornerShape(11.dp)), contentAlignment = Alignment.Center) { glyph() }
+        Spacer(Modifier.width(12.dp))
+        Column(Modifier.weight(1f)) {
+            Txt(title, Page.ink, 15.sp, maxLines = 1)
+            // 小字只放状态；没有就整行只剩标题，不占一行空白
+            if (subSlot != null) { Spacer(Modifier.height(3.dp)); subSlot() }
+            else if (sub.isNotEmpty()) { Spacer(Modifier.height(3.dp)); Txt(sub, Page.muted, 12.sp, maxLines = 1) }
+        }
+        Spacer(Modifier.width(10.dp))
+        Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.End) { trailing() }
+    }
+}
+
+/**
+ * 羽：连接会跳到羽那边授权，回来再查一次状态。
+ * 第 379 版：「连接」按钮自己变形——「等授权」→ 回来后「已连接 · N 篇笔记」或「没连上 · 点我重试」；
+ * 连上了停一会儿再换成「● 已连接」，两种样子交叉过渡。
+ */
+@Composable
+internal fun MineYuRow(i: Int, t: Float) {
+    val scope = rememberCoroutineScope()
+    androidx.lifecycle.compose.LifecycleResumeEffect(Unit) {
+        scope.launch { Yu.refresh() }
+        onPauseOrDispose { }
+    }
+    val morph = androidx.compose.runtime.remember { Morph() }
+    var back by androidx.compose.runtime.remember { androidx.compose.runtime.mutableStateOf<kotlinx.coroutines.CompletableDeferred<Unit>?>(null) }
+    val launcher = androidx.activity.compose.rememberLauncherForActivityResult(
+        androidx.activity.result.contract.ActivityResultContracts.StartActivityForResult(),
+    ) { back?.complete(Unit); scope.launch { Yu.refresh() } }
+    val state = Yu.state
+    val sub = when (state) { "on" -> "助理可以查阅 ${Yu.notes} 篇笔记"; "missing" -> "需要先安装羽"; else -> "让助理读取你的笔记" }
+    Box(Modifier.fillMaxWidth().mineRise(i, t).background(CardBlock, RoundedCornerShape(16.dp))) {
+        RowBody("羽", sub, glyph = { Txt("羽", warm, 17.sp, family = Serif) }) {
+            // 按钮正在报结果时先不换样子
+            val face = when { morph.running -> "btn"; state == "on" -> "on"; state == "missing" -> "missing"; else -> "btn" }
+            AnimatedContent(
+                face,
+                transitionSpec = { (fadeIn(tween(240, 60)) togetherWith fadeOut(tween(140))) using SizeTransform(clip = false) },
+                contentAlignment = Alignment.CenterEnd,
+                label = "yuFace",
+            ) { f ->
+                when (f) {
+                    "on" -> Row(verticalAlignment = Alignment.CenterVertically) {
+                        Box(Modifier.size(6.dp).background(warm, CircleShape))
+                        Spacer(Modifier.width(7.dp))
+                        Txt("已连接", Page.muted, 13.sp)
+                    }
+                    "missing" -> Txt("未安装", Page.muted, 13.sp)
+                    else -> MorphPill(morph, "连接", null, onClick = {
+                        scope.launch {
+                            morph.run("等授权", revert = false) {
+                                val d = kotlinx.coroutines.CompletableDeferred<Unit>(); back = d
+                                if (runCatching { launcher.launch(Yu.connectIntent()) }.isFailure) {
+                                    back = null; Yu.refresh()
+                                    return@run Morph.Bad("打不开羽", "先装上")
+                                }
+                                d.await(); back = null
+                                Yu.refresh()
+                                if (Yu.state == "on") Morph.Ok("已连接", "${Yu.notes} 篇笔记") else Morph.Bad("没连上")
+                            }
+                            // 换成「● 已连接」的交叉过渡走完再复位，免得淡出那一下露出「连接」
+                            kotlinx.coroutines.delay(320); morph.reset()
+                        }
+                    }, primary = true, small = true)
+                }
+            }
+        }
+    }
+}
+
+/** Telegram：在长条里登录过就显示是谁，能退出；没登录过不起 TDLib（省电）。退出要点两下（第一下变「确认退出」）。 */
+@Composable
+internal fun MineTgRow(i: Int, t: Float) {
+    val scope = rememberCoroutineScope()
+    val ctx = androidx.compose.ui.platform.LocalContext.current
+    var sure by androidx.compose.runtime.remember { androidx.compose.runtime.mutableStateOf(false) }
+    androidx.compose.runtime.LaunchedEffect(Unit) { if (java.io.File(ctx.filesDir, "tdlib/td.binlog").exists()) Td.up() }
+    androidx.compose.runtime.LaunchedEffect(sure) { if (sure) { kotlinx.coroutines.delay(3000); sure = false } }
+    val on = Td.state == "ready"
+    val sub = if (on) "已登录" + (Td.me.takeIf { it.isNotBlank() }?.let { " · $it" } ?: "") else "复制频道里的链接回来就能下"
+    Box(Modifier.fillMaxWidth().mineRise(i, t).background(CardBlock, RoundedCornerShape(16.dp))) {
+        RowBody("Telegram", sub, glyph = { Txt("T", warm, 17.sp, family = Serif) }) {
+            if (on) PressSurface(
+                { if (sure) scope.launch { Td.logout(); sure = false } else sure = true },
+                fill = veil(.08f), pressedFill = veil(.14f), pressScale = .93f, label = "退出 Telegram",
+            ) { Txt(if (sure) "确认退出" else "退出", if (sure) ClipBad else Page.ink, 13.sp, Modifier.padding(horizontal = 13.dp, vertical = 7.dp)) }
+            else Txt("未登录", Page.muted, 13.sp)
+        }
+    }
+}

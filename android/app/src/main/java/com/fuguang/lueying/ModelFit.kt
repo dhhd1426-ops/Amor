@@ -1,0 +1,96 @@
+package com.fuguang.lueying
+
+import org.json.JSONArray
+import org.json.JSONObject
+
+/**
+ * 每个模型自己适配：不用事先知道哪家认哪个参数。
+ * 发出去被 400 / 422 拒了，就看报错里点名的是哪个参数（思考强度、温度、Top P、工具……），
+ * 把它记在「这家 · 这个模型」名下，去掉再发；以后同一个模型一开始就不带它。换了模型从头试。
+ * 报错没点名时，交给 ChatApi.stream 原来的逐级退让；退让成功了也记下来。
+ * 型号本来的规矩（收哪些参数）在 ModelSpecs（照 Kelivo）；这里只记真机被拒学到的。
+ */
+object ModelFit {
+    private const val KEY = "model-fit"
+    private var prefs: Prefs? = null
+    private val map = HashMap<String, MutableSet<String>>()
+
+    /** 一类参数 → 请求体里对应的键。 */
+    private val keys = mapOf(
+        "think" to listOf("reasoning_effort", "thinking", "enable_thinking", "thinking_budget", "reasoning"),
+        "temp" to listOf("temperature"),
+        "top_p" to listOf("top_p"),
+        "tools" to listOf("tools", "tool_choice"),
+        "search" to listOf("enable_search", "search_options", "include_tool_usage"),
+        "usage" to listOf("stream_options"),
+    )
+    /** 报错里出现这些词，就是在说这一类参数。 */
+    private val words = mapOf(
+        "think" to listOf("reasoning_effort", "reasoning effort", "thinking", "enable_thinking", "thinking_budget", "budget_tokens", "reasoning"),
+        "temp" to listOf("temperature"),
+        "top_p" to listOf("top_p", "top-p", "topp"),
+        "tools" to listOf("tools", "tool_choice", "function calling", "functions", "tool use"),
+        "search" to listOf("enable_search", "search_options", "search_strategy", "include_tool_usage", "联网搜索"),
+        "usage" to listOf("stream_options", "include_usage"),
+    )
+
+    fun init(p: Prefs) {
+        prefs = p
+        runCatching {
+            val o = JSONObject(p.string(KEY) ?: return@runCatching)
+            o.keys().forEach { k -> val a = o.getJSONArray(k); map[k] = MutableList(a.length()) { a.getString(it) }.toMutableSet() }
+        }
+    }
+
+    private fun id(provider: String, model: String) = "$provider|${model.trim().lowercase()}"
+
+    fun drops(provider: String, model: String, what: String): Boolean =
+        map[id(provider, model)]?.contains(what) == true
+
+    /**
+     * 思考档位往下退（照 Claude Code：不支持的强度按「不超过它的最高一档」跑）：
+     * 记的是这个模型最高能到哪一档（发出去的原值）；没记过是 null。
+     */
+    fun cap(provider: String, model: String): String? =
+        map[id(provider, model)]?.firstOrNull { it.startsWith("cap:") }?.removePrefix("cap:")?.takeIf { it.isNotEmpty() }
+
+    /** 档位被拒：记下能到的那一档；没有更低的了（to = null）就记成不带思考参数。 */
+    fun stepDown(provider: String, model: String, to: String?) {
+        val set = map.getOrPut(id(provider, model)) { mutableSetOf() }
+        set.removeAll { it.startsWith("cap:") }
+        if (to != null) set += "cap:$to" else set += "think"
+        save()
+    }
+
+    fun learn(provider: String, model: String, what: String) {
+        if (map.getOrPut(id(provider, model)) { mutableSetOf() }.add(what)) save()
+    }
+
+    /** 这个模型记过要去掉的参数，从请求体里拿掉。 */
+    fun strip(provider: String, model: String, body: JSONObject) {
+        keys.forEach { (w, ks) -> if (drops(provider, model, w)) ks.forEach { body.remove(it) } }
+    }
+
+    /** 报错点名了哪一类、而且这次确实带了它：回这一类；看不出来回 null。 */
+    fun blame(err: String, body: JSONObject): String? {
+        val e = err.lowercase()
+        // 先看最具体的：思考、Top P、温度，最后才是工具（工具的报错常常顺带提到别的）
+        return listOf("usage", "search", "think", "top_p", "temp", "tools").firstOrNull { w ->
+            keys[w]!!.any { body.has(it) } && words[w]!!.any { it in e }
+        }
+    }
+
+    /** 记了哪些（给界面以后用）：「不带思考参数」「不带温度」…… */
+    fun note(provider: String, model: String): String = map[id(provider, model)].orEmpty().joinToString("、") {
+        when {
+            it == "think" -> "不带思考参数"; it == "temp" -> "不带温度"; it == "top_p" -> "不带 Top P"; it == "search" -> "不用自带搜索"; it == "usage" -> "不带用量"
+            it.startsWith("cap:") -> "思考最多到 ${it.removePrefix("cap:")}"; else -> "不用工具"
+        }
+    }
+
+    private fun save() {
+        val o = JSONObject()
+        map.forEach { (k, v) -> if (v.isNotEmpty()) o.put(k, JSONArray(v.toList())) }
+        prefs?.putString(KEY, o.toString())
+    }
+}

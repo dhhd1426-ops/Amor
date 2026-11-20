@@ -1,0 +1,161 @@
+name: Android APK
+
+on:
+  push:
+    branches: [native-app, main, check]
+    paths:
+      - "android/**"
+      - "public/**"
+      - ".github/workflows/android.yml"
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v5
+
+      # 版本号：Amor 的第 1 次编译 = 第 527 版（接 fuguang-lueying 的 526），覆盖安装不会被当成降级
+      - name: Build number
+        run: echo "BUILD_NO=$((526 + ${{ github.run_number }}))" >> "$GITHUB_ENV"
+
+      - uses: actions/setup-java@v5
+        with:
+          distribution: temurin
+          java-version: "21"
+
+      - uses: gradle/actions/setup-gradle@v5
+
+      - name: Fetch fonts
+        run: |
+          # 聊天页问候字体：Cormorant Garamond（OFL 开源可商用），取 Light 300 斜体生成静态字体
+          set -e
+          pip install --quiet fonttools
+          curl -fsSL -o cg.ttf "https://github.com/google/fonts/raw/main/ofl/cormorantgaramond/CormorantGaramond-Italic%5Bwght%5D.ttf"
+          mkdir -p android/app/src/main/res/font
+          fonttools varLib.instancer cg.ttf wght=300 -o android/app/src/main/res/font/cormorant_light_italic.ttf
+          # 深度思考 max 字样：Bodoni Moda 斜体 600（OFL），光学尺寸取 28
+          curl -fsSL -o bm.ttf "https://github.com/google/fonts/raw/main/ofl/bodonimoda/BodoniModa-Italic%5Bopsz%2Cwght%5D.ttf"
+          fonttools varLib.instancer bm.ttf wght=600 opsz=28 -o android/app/src/main/res/font/bodoni_moda_semibold_italic.ttf
+          # 全局界面字体（照 Claude App 的无衬线）：DM Sans（OFL），取 400 / 500 / 600 三个静态字重；中文缺字自动落到系统黑体
+          curl -fsSL -o dm.ttf "https://github.com/google/fonts/raw/main/ofl/dmsans/DMSans%5Bopsz%2Cwght%5D.ttf"
+          for w in 400:regular 500:medium 600:semibold; do
+            fonttools varLib.instancer dm.ttf wght=${w%%:*} opsz=14 -o android/app/src/main/res/font/dm_sans_${w##*:}.ttf
+          done
+          ls -la android/app/src/main/res/font
+
+      - name: Fetch TDLib
+        # Telegram 官方 TDLib（tdlib.yml 单独编好放在 Releases 的 tdlib-<版本>）：Java 绑定放进源码，libtdjni.so 放进 jniLibs
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -e
+          # Amor 自己的 Releases 里还没有就从老仓库 fuguang-lueying 拿一次，顺手发到 Amor（以后都从 Amor 拿）
+          gh release download tdlib-1.8.69 -p tdlib.zip -D /tmp/td -R "${{ github.repository }}" || {
+            gh release download tdlib-1.8.69 -p tdlib.zip -D /tmp/td -R dhhd1426-ops/fuguang-lueying
+            gh release create tdlib-1.8.69 /tmp/td/tdlib.zip -R "${{ github.repository }}" --target "${{ github.sha }}" -t "TDLib 1.8.69" -n "Telegram TDLib：打包时下载（从 fuguang-lueying 复制）" || true
+          }
+          cd /tmp/td && unzip -q tdlib.zip
+          so=$(find /tmp/td -name libtdjni.so -path "*arm64-v8a*" | head -n 1)
+          java=$(dirname "$(find /tmp/td -name Client.java -path "*org/drinkless/tdlib*" | head -n 1)")
+          mkdir -p "$GITHUB_WORKSPACE/android/app/src/main/jniLibs/arm64-v8a" "$GITHUB_WORKSPACE/android/app/src/main/java/org/drinkless/tdlib"
+          cp "$so" "$GITHUB_WORKSPACE/android/app/src/main/jniLibs/arm64-v8a/"
+          cp "$java"/*.java "$GITHUB_WORKSPACE/android/app/src/main/java/org/drinkless/tdlib/"
+          ls -la "$GITHUB_WORKSPACE/android/app/src/main/jniLibs/arm64-v8a" "$GITHUB_WORKSPACE/android/app/src/main/java/org/drinkless/tdlib"
+
+      - name: Build APK
+        working-directory: android
+        run: |
+          chmod +x gradlew
+          set -o pipefail
+          ./gradlew :app:assembleRelease --console=plain 2>&1 | tee build.log
+
+      - name: Report build errors
+        if: failure()
+        working-directory: android
+        run: |
+          # 把编译错误写成注解，方便在网页和接口里直接看到
+          { grep -E "^e: " build.log | head -n 30; grep -A 30 "What went wrong" build.log | grep -v "^\s*$" | head -n 30; } | head -n 48 | while IFS= read -r line; do
+            echo "::error::${line}"
+          done
+
+      - name: Install frame verification dependency
+        if: github.ref == 'refs/heads/check'
+        run: |
+          sudo apt-get update -qq
+          sudo apt-get install -y ffmpeg
+
+      - name: Office samples
+        # check 分支上顺便生成样例 PPT / Word，传上来核对导出
+        if: github.ref == 'refs/heads/check'
+        working-directory: android
+        run: |
+          set -o pipefail
+          ./gradlew :app:testDebugUnitTest --tests "com.fuguang.lueying.OfficeSampleTest" --tests "com.fuguang.lueying.StreamRecoveryTest" --tests "com.fuguang.lueying.MotionTimesTest" --tests "com.fuguang.lueying.StepsTest" --console=plain 2>&1 | tee test.log || {
+            { grep -E "^e: |Exception|Error|FAILED|expected" test.log | head -n 30; grep -A 20 "What went wrong" test.log | head -n 20; } | while IFS= read -r line; do echo "::error::${line}"; done
+            find app/build/test-results -name "*.xml" -exec grep -h -A8 "<failure" {} \; 2>/dev/null | head -n 20 | while IFS= read -r line; do echo "::error::${line}"; done
+            exit 1
+          }
+
+      - name: Push office samples
+        # 样例放到 office-samples 分支（每次覆盖），在别处用 git 取下来打开核对
+        if: github.ref == 'refs/heads/check'
+        run: |
+          set -e
+          mkdir /tmp/os && cp -r android/app/build/office-samples/. /tmp/os/ && cd /tmp/os
+          git init -q && git checkout -q -b office-samples
+          git -c user.name=Claude -c user.email=noreply@anthropic.com add -A
+          git -c user.name=Claude -c user.email=noreply@anthropic.com commit -q -m "office samples ${{ github.sha }}"
+          git push -q -f "https://x-access-token:${{ github.token }}@github.com/${{ github.repository }}.git" office-samples
+
+      - name: Torrent probe
+        # 提交说明里带「磁力」时，在 check 分支上跑一遍磁力探测（找种子信息 → 下 → 边下边看），报告和日志尾巴放到 torrent-report 分支
+        if: github.ref == 'refs/heads/check' && contains(github.event.head_commit.message, '磁力')
+        continue-on-error: true
+        timeout-minutes: 15
+        working-directory: android
+        run: |
+          ./gradlew :app:testDebugUnitTest --tests "com.fuguang.lueying.TorrentProbeTest" --console=plain > probe.log 2>&1 || echo "gradle exit $?" >> probe.log
+          mkdir -p /tmp/tr
+          cp app/build/torrent-report/report.txt /tmp/tr/ 2>/dev/null || true
+          tail -n 150 probe.log > /tmp/tr/probe-tail.log
+          find app/build/test-results -name "*Torrent*.xml" -exec cp {} /tmp/tr/ \; 2>/dev/null || true
+
+      - name: Push torrent report
+        if: github.ref == 'refs/heads/check' && contains(github.event.head_commit.message, '磁力')
+        continue-on-error: true
+        run: |
+          mkdir -p /tmp/tr && cd /tmp/tr
+          for f in *.txt; do [ -f "$f" ] && while IFS= read -r line; do echo "::notice::${line}"; done < "$f"; done
+          git init -q && git checkout -q -b torrent-report
+          git -c user.name=Claude -c user.email=noreply@anthropic.com add -A
+          git -c user.name=Claude -c user.email=noreply@anthropic.com commit -q --allow-empty -m "torrent report ${{ github.sha }}"
+          git push -q -f "https://x-access-token:${{ github.token }}@github.com/${{ github.repository }}.git" torrent-report
+
+      - name: Rename APK
+        run: |
+          mkdir -p out
+          cp android/app/build/outputs/apk/release/app-release.apk "out/fuguang-lueying-${{ env.BUILD_NO }}.apk"
+
+      # 安装包已经发到 Releases；这份副本只是方便在 Actions 页面下载。存储额度满了也不要挡住发版
+      - uses: actions/upload-artifact@v4
+        continue-on-error: true
+        with:
+          retention-days: 3
+          name: fuguang-lueying-apk
+          path: out/*.apk
+
+      - name: Publish to release
+        # check 分支只编译验证，不发版；确认没问题再合到 native-app 才出安装包
+        if: github.ref != 'refs/heads/check'
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: app-build-${{ env.BUILD_NO }}
+          name: 浮光掠影 App 第 ${{ env.BUILD_NO }} 版
+          body: 手机上直接下载下面的 APK 安装。每次更新都用同一个签名，可以直接覆盖安装。
+          prerelease: true
+          files: out/*.apk
+

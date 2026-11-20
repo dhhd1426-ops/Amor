@@ -1,0 +1,48 @@
+package com.fuguang.lueying
+
+import android.content.Context
+import android.content.SharedPreferences
+
+/** 本机存储，键名与网站 localStorage 保持一致。 */
+class Prefs(context: Context) {
+    private val sp: SharedPreferences =
+        context.getSharedPreferences("fuguang", Context.MODE_PRIVATE)
+    private val filesDir: java.io.File = context.applicationContext.filesDir
+
+    /** 放在 files/ 下的大块数据（对话记录）：不塞进设置文件，免得每改一个设置都把它重写一遍。 */
+    fun file(name: String) = java.io.File(filesDir, name)
+
+    var theme: String
+        get() = sp.getString("fuguang-theme", "dark") ?: "dark"
+        set(v) = sp.edit().putString("fuguang-theme", v).apply()
+
+    var dim: Int
+        get() = sp.getInt("fuguang-dim", 16)
+        set(v) = sp.edit().putInt("fuguang-dim", v).apply()
+
+    var blur: Int
+        get() = sp.getInt("fuguang-blur", 12)
+        set(v) = sp.edit().putInt("fuguang-blur", v).apply()
+
+    var note: String
+        get() = sp.getString("fuguang-note", "") ?: ""
+        set(v) = sp.edit().putString("fuguang-note", v).apply()
+
+    var favorites: Set<String>
+        get() = sp.getStringSet("luoying-favorites", emptySet())?.toSet() ?: emptySet()
+        set(v) = sp.edit().putStringSet("luoying-favorites", v).apply()
+
+    var fontSize: Int
+        get() = sp.getInt("luoying-font-size", 16).coerceIn(14, 22)
+        set(v) = sp.edit().putInt("luoying-font-size", v).apply()
+
+    var lastChapter: String?
+        get() = sp.getString("luoying-last", null)
+        set(v) = sp.edit().putString("luoying-last", v).apply()
+
+    fun progress(id: String): Int = sp.getInt("luoying-progress-$id", 0)
+    fun setProgress(id: String, scroll: Int) = sp.edit().putInt("luoying-progress-$id", scroll).apply()
+
+    fun string(key: String): String? = sp.getString(key, null)
+    fun putString(key: String, v: String?) = sp.edit().putString(key, v).apply()
+}

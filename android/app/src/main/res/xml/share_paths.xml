@@ -1,0 +1,14 @@
+<?xml version="1.0" encoding="utf-8"?>
+<paths>
+    <cache-path name="share" path="share/" />
+    <!-- 没存到相册的下载：播放、分享时交给别的 App -->
+    <files-path name="downloads" path="downloads/" />
+    <!-- 拍照：相机先存在这里，存进对话后删掉 -->
+    <cache-path name="camera" path="camera/" />
+    <!-- 你发给她的照片、文件：点开交给系统看 -->
+    <files-path name="attach" path="attach/" />
+    <!-- 她发的文件（Word / PDF / txt / md）：打开、分享时交给别的 App -->
+    <files-path name="sent" path="sent/" />
+    <!-- 她发的图片：看大图、分享时先复制到 cache/share/ 带上扩展名 -->
+    <files-path name="pics" path="pics/" />
+</paths>

@@ -1,0 +1,17 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="app_name">Vignette</string>
+    <color name="icon_ground">#F5F3ED</color>
+    <color name="icon_ground_whale">#FFFFFF</color>
+    <color name="icon_ground_lime">#EAE6E0</color>
+    <color name="icon_ground_gold">#121212</color>
+    <color name="ground">#343C44</color>
+    <color name="ink">#FAF5EE</color>
+
+    <style name="Theme.Fuguang" parent="android:Theme.Material.NoActionBar">
+        <item name="android:windowBackground">@color/ground</item>
+        <item name="android:statusBarColor">@android:color/transparent</item>
+        <item name="android:navigationBarColor">@android:color/transparent</item>
+        <item name="android:windowLayoutInDisplayCutoutMode">shortEdges</item>
+    </style>
+</resources>

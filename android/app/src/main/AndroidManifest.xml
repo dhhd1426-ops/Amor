@@ -1,0 +1,172 @@
+<?xml version="1.0" encoding="utf-8"?>
+<manifest xmlns:android="http://schemas.android.com/apk/res/android">
+
+    <!-- 打开时检查网上有没有新的掠影和留言 -->
+    <uses-permission android:name="android.permission.WAKE_LOCK" />
+    <uses-permission android:name="android.permission.INTERNET" />
+    <uses-permission android:name="android.permission.RECORD_AUDIO" />
+
+    <!-- 内置浏览器下载视频：后台接着下，通知栏有进度 -->
+    <uses-permission android:name="android.permission.ACCESS_NETWORK_STATE" />
+    <uses-permission android:name="android.permission.FOREGROUND_SERVICE" />
+    <uses-permission android:name="android.permission.FOREGROUND_SERVICE_DATA_SYNC" />
+    <uses-permission android:name="android.permission.POST_NOTIFICATIONS" />
+
+    <!-- 她帮你定闹钟、读写日历；加日程时她写的那句话到点用通知发（见 ClockTools.kt） -->
+    <uses-permission android:name="com.android.alarm.permission.SET_ALARM" />
+    <uses-permission android:name="android.permission.READ_CALENDAR" />
+    <uses-permission android:name="android.permission.ACCESS_COARSE_LOCATION" />
+    <uses-permission android:name="android.permission.ACCESS_FINE_LOCATION" />
+    <uses-permission android:name="android.permission.WRITE_CALENDAR" />
+    <uses-permission android:name="android.permission.SCHEDULE_EXACT_ALARM" />
+    <uses-permission android:name="android.permission.RECEIVE_BOOT_COMPLETED" />
+    <uses-permission android:name="android.permission.FOREGROUND_SERVICE_SPECIAL_USE" />
+    <uses-permission android:name="android.permission.REQUEST_IGNORE_BATTERY_OPTIMIZATIONS" />
+
+    <!-- 连接器：能看到笔记 App「羽」，读取它提供的笔记接口 -->
+    <queries>
+        <intent><action android:name="android.speech.RecognitionService" /></intent>
+        <package android:name="com.yu.notes" />
+    </queries>
+
+    <application
+        android:allowBackup="true"
+        android:icon="@mipmap/ic_launcher"
+        android:roundIcon="@mipmap/ic_launcher"
+        android:label="@string/app_name"
+        android:supportsRtl="true"
+        android:networkSecurityConfig="@xml/network_security"
+        android:theme="@style/Theme.Fuguang">
+        <activity
+            android:name=".MainActivity"
+            android:exported="true"
+            android:resizeableActivity="true"
+            android:configChanges="orientation|screenSize|smallestScreenSize|screenLayout|density|keyboardHidden|uiMode"
+            android:windowSoftInputMode="adjustResize" />
+
+        <!-- 桌面图标：「我的 → 主题 → 图标」换哪个就只开哪个入口（见 AppIcon.kt），都指向 MainActivity -->
+        <activity-alias
+            android:name=".IconBlue"
+            android:targetActivity=".MainActivity"
+            android:icon="@mipmap/ic_launcher"
+            android:roundIcon="@mipmap/ic_launcher"
+            android:enabled="true"
+            android:exported="true">
+            <intent-filter>
+                <action android:name="android.intent.action.MAIN" />
+                <category android:name="android.intent.category.LAUNCHER" />
+            </intent-filter>
+        </activity-alias>
+        <activity-alias
+            android:name=".IconWhale"
+            android:targetActivity=".MainActivity"
+            android:icon="@mipmap/ic_launcher_whale"
+            android:roundIcon="@mipmap/ic_launcher_whale"
+            android:enabled="false"
+            android:exported="true">
+            <intent-filter>
+                <action android:name="android.intent.action.MAIN" />
+                <category android:name="android.intent.category.LAUNCHER" />
+            </intent-filter>
+        </activity-alias>
+        <activity-alias
+            android:name=".IconLime"
+            android:targetActivity=".MainActivity"
+            android:icon="@mipmap/ic_launcher_lime"
+            android:roundIcon="@mipmap/ic_launcher_lime"
+            android:enabled="false"
+            android:exported="true">
+            <intent-filter>
+                <action android:name="android.intent.action.MAIN" />
+                <category android:name="android.intent.category.LAUNCHER" />
+            </intent-filter>
+        </activity-alias>
+        <activity-alias
+            android:name=".IconGold"
+            android:targetActivity=".MainActivity"
+            android:icon="@mipmap/ic_launcher_gold"
+            android:roundIcon="@mipmap/ic_launcher_gold"
+            android:enabled="false"
+            android:exported="true">
+            <intent-filter>
+                <action android:name="android.intent.action.MAIN" />
+                <category android:name="android.intent.category.LAUNCHER" />
+            </intent-filter>
+        </activity-alias>
+
+        <!-- 作品分享：导出的网页、PPT、Word 临时放在 cache/share，交给别的 App -->
+        <provider
+            android:name="androidx.core.content.FileProvider"
+            android:authorities="${applicationId}.files"
+            android:exported="false"
+            android:grantUriPermissions="true">
+            <meta-data
+                android:name="android.support.FILE_PROVIDER_PATHS"
+                android:resource="@xml/share_paths" />
+        </provider>
+
+        <!-- 下载在后台走（见 DownloadService.kt） -->
+        <service
+            android:name=".DownloadService"
+            android:exported="false"
+            android:foregroundServiceType="dataSync" />
+
+        <!-- 她回答期间在后台跑完、通知上的回复 / 已读（见 Notify.kt、ReplyLive.kt） -->
+        <service
+            android:name=".ReplyLive"
+            android:exported="false"
+            android:foregroundServiceType="dataSync" />
+        <receiver
+            android:name=".ReplyReceiver"
+            android:exported="false" />
+        <receiver
+            android:name=".HerNoteReceiver"
+            android:exported="false" />
+
+        <!-- 约定（Pacts.kt）：到点叫醒她、开机和更新后把闹钟重新定一遍、她想话时的前台服务 -->
+        <receiver
+            android:name=".PactAlarm"
+            android:exported="false" />
+        <receiver
+            android:name=".PactBoot"
+            android:exported="true">
+            <intent-filter>
+                <action android:name="android.intent.action.BOOT_COMPLETED" />
+                <action android:name="android.intent.action.MY_PACKAGE_REPLACED" />
+            </intent-filter>
+        </receiver>
+        <service
+            android:name=".PactRun"
+            android:exported="false"
+            android:foregroundServiceType="dataSync" />
+        <!-- 有约定时她常驻后台（PactKeeper.kt）：划掉界面也还在，到点直接在这里叫她 -->
+        <service
+            android:name=".PactKeeper"
+            android:exported="false"
+            android:foregroundServiceType="specialUse">
+            <property
+                android:name="android.app.PROPERTY_SPECIAL_USE_FGS_SUBTYPE"
+                android:value="助理按用户定下的约定到点主动发消息，需要常驻等待定时" />
+        </service>
+
+        <!-- 桌面小组件「每日一言」：手记里的一言，每 2 小时换一句（见 Yiyan.kt） -->
+        <receiver
+            android:name=".YiyanWidget"
+            android:label="每日一言"
+            android:exported="false">
+            <intent-filter>
+                <action android:name="android.appwidget.action.APPWIDGET_UPDATE" />
+            </intent-filter>
+            <meta-data
+                android:name="android.appwidget.provider"
+                android:resource="@xml/yiyan_widget" />
+        </receiver>
+
+        <!-- 连接器 api 3：羽反过来请助理把一段文字整理成导图（见 YuConnector.kt 的 YuProvider） -->
+        <provider
+            android:name=".YuProvider"
+            android:authorities="com.fuguang.lueying.yu"
+            android:exported="true" />
+    </application>
+
+</manifest>
