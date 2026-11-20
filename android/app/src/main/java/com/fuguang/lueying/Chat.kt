@@ -1515,14 +1515,10 @@ private fun ChatInput(
                         if (think != null && think != Effort.OFF && think != Effort.AUTO) Txt(" · " + Effort.label(think), Page.accent, 12.sp, maxLines = 1)
                     }
                 }
-                // 世界书、快捷短语（照 Kelivo 输入框下面那排）：展开时跟模型胶囊一起长出来
+                // 快捷短语（照 Kelivo 输入框下面那排）：展开时跟模型胶囊一起长出来。世界书只留在「＋」菜单里，这里不重复
                 if (fold.open > .05f) {
                     val o = fold.open.coerceIn(0f, 1f)
                     val fade = Modifier.graphicsLayer { alpha = o; translationY = 8.dp.toPx() * (1f - o) }
-                    Pressable({ handOffKeyboard { ChatSheets.worldBooks(chat.convId) } }, fade, label = "世界书") { pr ->
-                        SvgIcon(KI.worldBook, if (AssistantExt.of(Memory.active).worldBooks.isEmpty()) Page.muted else Page.accent, 16.dp, stroke = 1.8f,
-                            modifier = Modifier.background(veil(if (pr) .13f else .07f), CircleShape).padding(9.dp))
-                    }
                     if (AssistantExt.of(Memory.active).phrases.isNotEmpty()) Pressable({ handOffKeyboard { ChatSheets.phrases { chat.draft = (chat.draft + it).take(20000) } } }, fade, label = "快捷短语") { pr ->
                         SvgIcon(KI.quote, Page.muted, 16.dp, stroke = 1.8f, modifier = Modifier.background(veil(if (pr) .13f else .07f), CircleShape).padding(9.dp))
                     }
