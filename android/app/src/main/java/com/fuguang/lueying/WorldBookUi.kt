@@ -198,15 +198,21 @@ private fun ColumnScope.BookList(nav: MineNav, sheet: KSheetState) {
             }
         }
         // 底部提示
-        AnimatedVisibility(
-            toast.isNotEmpty(), Modifier.align(Alignment.BottomCenter).padding(16.dp),
-            enter = fadeIn(tween(240)) + slideInVertically(tween(320, easing = K.decel)) { it / 3 },
-            exit = fadeOut(tween(180)) + slideOutVertically(tween(220, easing = K.accel)) { it / 3 },
-        ) {
-            var last by remember { mutableStateOf("") }
-            if (toast.isNotEmpty()) last = toast
-            Txt(last, K.ink, 14.sp, Modifier.fillMaxWidth().clip(RoundedCornerShape(14.dp)).background(K.card2).padding(horizontal = 16.dp, vertical = 12.dp), lineHeight = 20.sp)
-        }
+        WbToast(toast, Modifier.align(Alignment.BottomCenter).padding(16.dp))
+    }
+}
+
+/** 底部提示：从下面滑上来，过一会儿自己退下去。单独一个函数，免得在 Column 里挑错 AnimatedVisibility。 */
+@Composable
+private fun WbToast(text: String, modifier: Modifier) {
+    var last by remember { mutableStateOf("") }
+    if (text.isNotEmpty()) last = text
+    AnimatedVisibility(
+        text.isNotEmpty(), modifier,
+        enter = fadeIn(tween(240)) + slideInVertically(tween(320, easing = K.decel)) { it / 3 },
+        exit = fadeOut(tween(180)) + slideOutVertically(tween(220, easing = K.accel)) { it / 3 },
+    ) {
+        Txt(last, K.ink, 14.sp, Modifier.fillMaxWidth().clip(RoundedCornerShape(14.dp)).background(K.card2).padding(horizontal = 16.dp, vertical = 12.dp), lineHeight = 20.sp)
     }
 }
 
