@@ -73,10 +73,13 @@ object WorldBooks {
     private const val KEY = "world-books"
     private const val CONV_KEY = "world-books-conv"
     private const val STATE_KEY = "world-books-state"
+    private const val FOLD_KEY = "world-books-collapsed"
     private var prefs: Prefs? = null
     val books = mutableStateListOf<WorldBook>()
     /** 对话里「仅当前对话」勾的世界书：对话 id → 书 id 列表。 */
     private val conv = HashMap<String, List<String>>()
+    /** 页面上哪几本收起来了（照 Kelivo provider._collapsedBooks，默认展开，记住）。 */
+    val collapsed = androidx.compose.runtime.mutableStateMapOf<String, Boolean>()
     /** 粘滞 / 冷却的计时：对话 id → {messageCount, historyHash, effects}。 */
     private val state = HashMap<String, JSONObject>()
 
@@ -85,6 +88,7 @@ object WorldBooks {
         runCatching { val a = JSONArray(p.string(KEY) ?: "[]"); books.clear(); for (i in 0 until a.length()) books += WorldBook.fromJson(a.getJSONObject(i)) }
         runCatching { val o = JSONObject(p.string(CONV_KEY) ?: "{}"); o.keys().forEach { k -> val a = o.getJSONArray(k); conv[k] = (0 until a.length()).map { a.getString(it) } } }
         runCatching { val o = JSONObject(p.string(STATE_KEY) ?: "{}"); o.keys().forEach { k -> state[k] = o.getJSONObject(k) } }
+        runCatching { val o = JSONObject(p.string(FOLD_KEY) ?: "{}"); o.keys().forEach { k -> if (books.any { it.id == k }) collapsed[k] = o.optBoolean(k) } }
         migrate()
     }
 
@@ -94,7 +98,32 @@ object WorldBooks {
 
     fun get(id: String) = books.firstOrNull { it.id == id }
     fun put(b: WorldBook) { val i = books.indexOfFirst { it.id == b.id }; if (i >= 0) books[i] = b else books += b; save() }
-    fun remove(id: String) { books.removeAll { it.id == id }; save() }
+    fun remove(id: String) { books.removeAll { it.id == id }; collapsed.remove(id); save(); saveFold() }
+
+    fun isCollapsed(id: String) = collapsed[id] == true
+    fun toggleCollapsed(id: String) { collapsed[id] = !isCollapsed(id); saveFold() }
+    fun expand(id: String) { if (isCollapsed(id)) { collapsed[id] = false; saveFold() } }
+    private fun saveFold() { prefs?.putString(FOLD_KEY, JSONObject(collapsed.filterValues { it }.toMap()).toString()) }
+
+    /** 拖动排书（拖的途中每过一格调一次，松手时 [save]）。 */
+    fun moveBook(from: Int, to: Int) { if (from in books.indices && to in books.indices && from != to) books.add(to, books.removeAt(from)) }
+
+    /** 拖动排一本书里的条目。 */
+    fun moveEntry(bookId: String, from: Int, to: Int) {
+        val b = get(bookId) ?: return
+        if (from !in b.entries.indices || to !in b.entries.indices || from == to) return
+        put(b.copy(entries = b.entries.toMutableList().apply { add(to, removeAt(from)) }))
+    }
+
+    /** 把几条复制 / 移动到另一本（Kelivo showWorldBookEntryTransfer）；复制的换新 id。 */
+    fun transfer(fromId: String, toId: String, ids: Set<String>, copy: Boolean): Int {
+        val src = get(fromId) ?: return 0
+        val dst = get(toId) ?: return 0
+        val picked = src.entries.filter { it.id in ids }
+        put(dst.copy(entries = dst.entries + picked.map { if (copy) it.copy(id = WbEntry.newId()) else it }))
+        if (!copy) put(src.copy(entries = src.entries.filter { it.id !in ids }))
+        return picked.size
+    }
 
     /** 这个对话有没有自己勾的（「仅当前对话」）；null = 跟着助理。 */
     fun convPick(convId: String): List<String>? = conv[convId]
@@ -240,24 +269,106 @@ object WorldBooks {
 
     fun export(b: WorldBook): String = b.toJson().put("format", "kelivo-world-book").toString(2)
 
-    /** 读 Kelivo 世界书 JSON，或 SillyTavern 的 { entries: { "0": {key, content, comment, constant, position, depth, ...} } }。 */
-    fun import(raw: String, fallbackName: String): WorldBook? {
-        val o = runCatching { JSONObject(raw) }.getOrNull() ?: return null
-        val entries = o.opt("entries")
-        if (entries is JSONArray) return WorldBook.fromJson(o).copy(id = WbEntry.newId())
-        if (entries is JSONObject) {
-            val list = entries.keys().asSequence().mapNotNull { entries.optJSONObject(it) }.map { e ->
-                val keys = e.optJSONArray("key")?.let { a -> (0 until a.length()).map { a.optString(it) } } ?: emptyList()
-                val pos = when (e.optInt("position", 1)) { 0 -> WbPosition.BEFORE_SYSTEM; 1 -> WbPosition.AFTER_SYSTEM; 4 -> WbPosition.DEPTH; else -> WbPosition.AFTER_SYSTEM }
-                WbEntry(
-                    WbEntry.newId(), e.optString("comment"), !e.optBoolean("disable"), e.optInt("order"), pos, e.optString("content"),
-                    e.optInt("depth", 4), if (e.optInt("role") == 2) "assistant" else "user", keys.map { it.trim() }.filter { it.isNotEmpty() },
-                    false, e.optBoolean("caseSensitive"), e.optInt("scanDepth", 4).let { if (it <= 0) 4 else it }, e.optBoolean("constant"),
-                    e.optInt("sticky"), e.optInt("cooldown"), e.optInt("delay"),
-                )
-            }.toList()
-            return WorldBook(WbEntry.newId(), o.optString("name").ifBlank { fallbackName }, o.optString("description"), true, list)
+    /** 导入结果：书，和多少条用了暂不支持的酒馆功能（已停用）。 */
+    class Imported(val book: WorldBook, val unsupported: Int)
+
+    /**
+     * 读 Kelivo / RikkaHub 导出的世界书，或 SillyTavern 单独导出的 World Info（照 Kelivo utils/world_book_import.dart）。
+     * 酒馆里这边不支持的规则（宏、时效、次要关键词、概率、分组、递归延迟、角色筛选、正则关键词……）不能悄悄放宽触发：保留内容，但停用。
+     */
+    fun import(raw: String, fileName: String): Imported? = runCatching {
+        var o = JSONObject(raw)
+        o.optJSONObject("data")?.let { o = it }
+        val ents = o.opt("entries")
+        if (ents is JSONArray) return@runCatching Imported(fresh(WorldBook.fromJson(o)), 0)
+        if (ents !is JSONObject) return@runCatching null
+        // 酒馆先按整数键排，再在组装提示词时把同序的倒过来；displayIndex 只管它编辑器里的顺序
+        val keys = ents.keys().asSequence().toList()
+        val src = keys.withIndex().associate { it.value to it.index }
+        fun arrIdx(k: String) = k.toLongOrNull()?.takeIf { it in 0 until 0xffffffffL && it.toString() == k }
+        val sorted = keys.sortedWith { x, y ->
+            val a = arrIdx(x); val b = arrIdx(y)
+            when { a != null && b != null -> a.compareTo(b); a != null -> -1; b != null -> 1; else -> src.getValue(x).compareTo(src.getValue(y)) }
         }
-        return null
+        val depthRoles = HashMap<Int, MutableSet<Int>>()
+        keys.forEach { k ->
+            val e = ents.optJSONObject(k) ?: return@runCatching null
+            if (e.optInt("position", 0) == 4 && !e.optBoolean("disable")) {
+                val role = e.optInt("role", 0)
+                if (role == 1 || role == 2) depthRoles.getOrPut(e.optInt("depth", 4)) { HashSet() } += role
+            }
+        }
+        var bad = 0
+        val list = sorted.reversed().map { k ->
+            val e = ents.getJSONObject(k)
+            val content = e.opt("content") as? String ?: return@runCatching null
+            val keyArr = e.optJSONArray("key") ?: return@runCatching null
+            val kw = (0 until keyArr.length()).map { keyArr.optString(it) }
+            val constant = e.optBoolean("constant")
+            val position = e.optInt("position", 0)
+            val role = e.optInt("role", 0)
+            val depth = e.optInt("depth", 4)
+            // 单独导出不带全局扫描设置：继承时用酒馆默认 2
+            val scan = if (e.has("scanDepth") && !e.isNull("scanDepth")) e.optInt("scanDepth", 2) else 2
+            val unsupported = position !in listOf(0, 1, 4) ||
+                (position == 4 && (role !in listOf(1, 2) || depth < 0 || depth > 200 || (role == 2 && depth == 0) || (depthRoles[depth]?.size ?: 0) > 1)) ||
+                (!constant && (kw.any(::badKeyword) || scan < 1 || scan > 200)) ||
+                badRules(e, content, constant)
+            if (unsupported) bad++
+            val comment = e.optString("comment")
+            WbEntry(
+                id = e.opt("uid")?.toString()?.takeIf { it.isNotBlank() } ?: k,
+                name = comment.ifEmpty { kw.firstOrNull().orEmpty() },
+                enabled = !e.optBoolean("disable") && !unsupported,
+                // 酒馆 order 大的插得靠后；这边优先级高的先放
+                priority = -e.optInt("order", 100),
+                position = when (position) { 0 -> WbPosition.BEFORE_SYSTEM; 4 -> WbPosition.DEPTH; else -> WbPosition.AFTER_SYSTEM },
+                content = content,
+                injectDepth = depth.coerceIn(0, 200),
+                role = if (role == 2) "assistant" else "user",
+                keywords = kw,
+                caseSensitive = e.optBoolean("caseSensitive"),
+                scanDepth = scan.coerceIn(1, 200),
+                constantActive = constant,
+                sticky = e.optInt("sticky").coerceIn(0, 10000),
+                cooldown = e.optInt("cooldown").coerceIn(0, 10000),
+                delay = e.optInt("delay").coerceIn(0, 10000),
+            )
+        }
+        val name = o.optString("name").trim().ifEmpty { fileName.replace('\\', '/').substringAfterLast('/').replace(Regex("\\.json$", RegexOption.IGNORE_CASE), "") }
+        Imported(fresh(WorldBook("", name, o.optString("description"), true, list)), bad)
+    }.getOrNull()
+
+    /** 书 id 和已有的重了、或者空，换新；条目 id 重的也换。 */
+    private fun fresh(b: WorldBook): WorldBook {
+        val id = b.id.trim().takeIf { it.isNotEmpty() && books.none { x -> x.id == it } } ?: WbEntry.newId()
+        val seen = HashSet<String>()
+        return b.copy(id = id, entries = b.entries.map { e -> val eid = e.id.trim().takeIf { it.isNotEmpty() && seen.add(it) } ?: WbEntry.newId().also { seen += it }; e.copy(id = eid) })
+    }
+
+    private val macro = Regex("\\{\\{[\\s\\S]*?\\}\\}|<(?:user|bot|char|charifnotgroup|group)>", RegexOption.IGNORE_CASE)
+
+    private fun badRules(e: JSONObject, content: String, constant: Boolean): Boolean {
+        if (content.startsWith("@@") || macro.containsMatchIn(content)) return true
+        // 酒馆的时效在不同的边界过期，照抄数字会改变触发
+        if (e.optInt("sticky") != 0 || e.optInt("cooldown") != 0 || e.optInt("delay") > 10000) return true
+        if (!constant && e.optBoolean("selective", true) && (e.optJSONArray("keysecondary")?.length() ?: 0) > 0) return true
+        if (e.optBoolean("useProbability", true) && e.optDouble("probability", 100.0) != 100.0) return true
+        if (e.optString("group").isNotBlank() || e.optString("automationId").isNotBlank() || (e.optJSONArray("triggers")?.length() ?: 0) > 0) return true
+        when (val r = e.opt("delayUntilRecursion")) { true -> return true; is Number -> if (r.toDouble() > 0) return true }
+        e.optJSONObject("characterFilter")?.let { f -> if ((f.optJSONArray("names")?.length() ?: 0) > 0 || (f.optJSONArray("tags")?.length() ?: 0) > 0) return true }
+        return !constant && listOf(
+            "vectorized", "matchWholeWords", "matchPersonaDescription", "matchCharacterDescription", "matchCharacterPersonality",
+            "matchCharacterDepthPrompt", "matchScenario", "matchCreatorNotes",
+        ).any { e.optBoolean(it) }
+    }
+
+    /** 宏、换行、或者合法的 /正则/ 写法（酒馆按最新消息往前扫、带分隔符，就算这边也能跑结果也可能不同，留给人看）。 */
+    private fun badKeyword(raw: String): Boolean {
+        if (macro.containsMatchIn(raw) || Regex("[\\r\\n\\u0001]").containsMatchIn(raw)) return true
+        val m = Regex("^/([\\s\\S]+?)/([gimsuy]*)$").find(raw.trim()) ?: return false
+        val pattern = m.groupValues[1]; val flags = m.groupValues[2]
+        if (Regex("(^|[^\\\\])/").containsMatchIn(pattern) || flags.toSet().size != flags.length) return false
+        return runCatching { Regex(pattern) }.isSuccess
     }
 }

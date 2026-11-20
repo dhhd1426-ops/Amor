@@ -115,6 +115,8 @@ dependencies {
     implementation("androidx.media3:media3-datasource:1.9.2")
     implementation("androidx.media3:media3-database:1.9.2")
     implementation("dev.chrisbanes.haze:haze:1.7.3")
+    // 拖动排序（世界书的书和条目）：Calvin-LL/Reorderable，Apache-2.0
+    implementation("sh.calvin.reorderable:reorderable:3.1.0")
     implementation("org.jsoup:jsoup:1.18.3")
     // 阿里实时识别的 WebSocket
     implementation("com.squareup.okhttp3:okhttp:4.12.0")
