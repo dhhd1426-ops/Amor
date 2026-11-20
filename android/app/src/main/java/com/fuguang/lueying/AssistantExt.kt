@@ -81,6 +81,13 @@ object AssistantExt {
     fun of(p: Persona): AsstExt = of(p.id)
     fun of(id: String): AsstExt = map.getOrPut(id) { AsstExt().apply { toolsOff.addAll(LocalTools.NEW_DEFAULT_OFF) } }
 
+    /** 删了某个自建供应商：设了它的助理退回「使用全局默认」。 */
+    fun dropProvider(pid: String) {
+        var changed = false
+        map.values.forEach { x -> if (x.chatModel?.startsWith("$pid|") == true) { x.chatModel = null; changed = true } }
+        if (changed) save()
+    }
+
     fun save() {
         val o = JSONObject()
         map.forEach { (id, x) -> o.put(id, write(x)) }

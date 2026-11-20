@@ -61,7 +61,7 @@ internal fun ColumnScope.AssistantEditScreen(store: AssistantStore, p: Persona, 
         HorizontalPager(pager, Modifier.fillMaxSize(), verticalAlignment = Alignment.Top, beyondViewportPageCount = 1, pageSpacing = 16.dp) { page ->
             Column(Modifier.fillMaxSize().verticalScroll(rememberScrollState()).padding(bottom = 24.dp)) {
                 when (page) {
-                    0 -> BasicPage(store, p, x, blur, sheet)
+                    0 -> BasicPage(store, p, x, blur, sheet, nav)
                     1 -> PromptPage(p, x, blur, sheet)
                     2 -> MemoryPage(p, x, nav, sheet)
                     3 -> ToolsPage(x)
@@ -83,7 +83,7 @@ private fun fmt(v: Float) = String.format(java.util.Locale.US, "%.2f", v)
 // ───────── 基础设置 ─────────
 
 @Composable
-private fun BasicPage(store: AssistantStore, p: Persona, x: AsstExt, blur: Dp, sheet: KSheetState) {
+private fun BasicPage(store: AssistantStore, p: Persona, x: AsstExt, blur: Dp, sheet: KSheetState, nav: MineNav) {
     NameCard(p, blur)
     Spacer(Modifier.height(14.dp))
     KCard {
@@ -129,15 +129,21 @@ private fun BasicPage(store: AssistantStore, p: Persona, x: AsstExt, blur: Dp, s
     KCard {
         val label = x.chatModel?.let { s -> s.split("|", limit = 2).let { (pid, m) -> "${provider(pid).name} · $m" } } ?: "使用全局默认"
         KRow("聊天模型", KI.chat, "为该助手设置默认聊天模型（未设置时使用全局默认）", label, onClick = {
-            sheet.open {
-                KSheetTitle("聊天模型") { if (x.chatModel != null) KChip("重置为默认") { x.chatModel = null; saveX(); sheet.close() } }
-                KOption("使用全局默认", x.chatModel == null) { x.chatModel = null; saveX(); sheet.close() }
-                PROVIDERS.filter { store.config(it.id).configured }.forEach { pv ->
-                    store.config(pv.id).models.forEach { m ->
-                        val v = "${pv.id}|$m"
-                        KOption("${pv.name} · $m", x.chatModel == v) { x.chatModel = v; saveX(); if (Memory.active.id == p.id) store.use(pv.id, m); sheet.close() }
-                    }
-                }
+            // 和聊天里同一套两页（ModelPicker.kt 的 ModelPages）：第一页一家的型号，点标题去「所有模型」换家、填 Key、添加供应商
+            sheet.openBare {
+                var more by remember { mutableStateOf(false) }
+                var find by remember { mutableStateOf("") }
+                var view by remember { mutableStateOf(x.chatModel?.substringBefore('|')?.takeIf { id -> PROVIDERS.any { it.id == id } } ?: store.activeProvider) }
+                ModelPages(
+                    store, more, view, find,
+                    onFind = { find = it }, onMore = { more = it }, onView = { view = it },
+                    onPick = { pid, m -> x.chatModel = "$pid|$m"; saveX(); if (Memory.active.id == p.id) store.use(pid, m); sheet.close() },
+                    onSetup = { id -> sheet.close(); nav.screen = if (id != null) "provider/$id" else "providers" },
+                    modifier = Modifier.weight(1f, fill = false),
+                    sel = x.chatModel,
+                    header = { FollowGlobalRow(x.chatModel == null) { x.chatModel = null; saveX(); sheet.close() } },
+                    onAdd = { openAddProvider(store) { id -> sheet.close(); nav.screen = "provider/$id" } },
+                )
             }
         })
     }

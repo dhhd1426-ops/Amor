@@ -35,6 +35,10 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.focus.onFocusChanged
 import androidx.compose.ui.draw.alpha
+import androidx.compose.ui.draw.drawBehind
+import androidx.compose.ui.geometry.CornerRadius
+import androidx.compose.ui.graphics.PathEffect
+import androidx.compose.ui.graphics.drawscope.Stroke
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.ColorFilter
 import androidx.compose.ui.graphics.ColorMatrix
@@ -140,6 +144,12 @@ fun ModelPages(
     onFind: (String) -> Unit, onMore: (Boolean) -> Unit, onView: (String) -> Unit,
     onPick: (String, String) -> Unit, onSetup: (String?) -> Unit, modifier: Modifier = Modifier,
     onSearchFocus: (Boolean) -> Unit = {},
+    /** 打勾的是哪个「供应商|型号」；聊天里是正在用的，助理设置里是她的默认模型（null = 跟随全局，谁都不打勾）。 */
+    sel: String? = "${store.activeProvider}|${store.activeModel}",
+    /** 第一页标题上面多放的一行（助理设置的「使用全局默认」）。 */
+    header: (@Composable () -> Unit)? = null,
+    /** 第二页最底下的「添加供应商」。 */
+    onAdd: (() -> Unit)? = null,
 ) {
     AnimatedContent(
         targetState = more,
@@ -158,6 +168,7 @@ fun ModelPages(
     ) { b ->
         Column {
             if (!b) {
+                header?.invoke()
                 Box(Modifier.fillMaxWidth().padding(start = 20.dp, end = 20.dp, top = 10.dp, bottom = 8.dp), contentAlignment = Alignment.Center) {
                     ModelTitle(store, view) { onMore(true) }
                 }
@@ -165,7 +176,7 @@ fun ModelPages(
                     Modifier.weight(1f, fill = false).verticalScroll(rememberScrollState())
                         .padding(start = 16.dp, end = 16.dp, top = 2.dp, bottom = 6.dp),
                     verticalArrangement = Arrangement.spacedBy(4.dp),
-                ) { ModelHome(store, view, onPick) }
+                ) { ModelHome(store, view, sel, onPick) }
             } else {
                 Column(Modifier.padding(start = 14.dp, end = 20.dp, top = 6.dp, bottom = 6.dp)) {
                     Box(Modifier.fillMaxWidth()) {
@@ -183,8 +194,8 @@ fun ModelPages(
                         .verticalScroll(rememberScrollState())
                         .padding(start = 16.dp, end = 16.dp, top = 2.dp, bottom = 10.dp),
                 ) {
-                    if (find.isBlank()) ProviderList(store, onGo = { onView(it); onMore(false) }, onSetup = onSetup)
-                    else ModelSearch(store, find, onPick, onSetup)
+                    if (find.isBlank()) ProviderList(store, sel, onGo = { onView(it); onMore(false) }, onSetup = onSetup, onAdd = onAdd)
+                    else ModelSearch(store, find, sel, onPick, onSetup)
                 }
             }
         }
@@ -217,9 +228,9 @@ private fun ModelTitle(store: AssistantStore, pid: String, onClick: () -> Unit) 
 
 /** 第一页的型号：这一家的主型号。 */
 @Composable
-private fun ModelHome(store: AssistantStore, pid: String, onPick: (String, String) -> Unit) {
+private fun ModelHome(store: AssistantStore, pid: String, sel: String?, onPick: (String, String) -> Unit) {
     val c = store.config(pid)
-    val cur = if (store.activeProvider == pid) store.activeModel else null
+    val cur = sel?.takeIf { it.startsWith("$pid|") }?.substringAfter('|')
     val ms = ModelSort.home(c.models, cur)
     if (ms.isEmpty()) {
         Txt(
@@ -233,20 +244,22 @@ private fun ModelHome(store: AssistantStore, pid: String, onPick: (String, Strin
 
 /** 第二页：每家一行；还没填 Key 的排在后面。 */
 @Composable
-private fun ProviderList(store: AssistantStore, onGo: (String) -> Unit, onSetup: (String?) -> Unit) {
+private fun ProviderList(store: AssistantStore, sel: String?, onGo: (String) -> Unit, onSetup: (String?) -> Unit, onAdd: (() -> Unit)?) {
+    val selPid = sel?.substringBefore('|')
+    val selModel = sel?.substringAfter('|')
     val ready = store.ready()
     val todo = store.ordered().filter { !store.config(it.id).configured }
     Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
         ready.forEach { p ->
             val c = store.config(p.id)
-            val cur = store.activeProvider == p.id
+            val cur = selPid == p.id
             PressSurface({ onGo(p.id) }, Modifier.fillMaxWidth(), shape = RoundedCornerShape(16.dp), fill = veil(.05f), pressedFill = veil(.09f), pressScale = .985f, label = c.name) {
                 Row(Modifier.fillMaxWidth().padding(horizontal = 12.dp, vertical = 11.dp), verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(10.dp)) {
                     ProviderLogo(p.id, p.letter, 32.dp)
                     Txt(c.name, Page.ink, 14.5.sp, Modifier.weight(1f, fill = false), weight = FontWeight.Medium, maxLines = 1)
                     Txt(c.models.count { ModelSort.chat(it) }.toString(), Page.muted, 11.sp, Modifier.background(veil(.06f), RoundedCornerShape(50)).padding(horizontal = 8.dp, vertical = 2.dp))
                     Spacer(Modifier.weight(1f))
-                    if (cur) Txt(store.activeModel, Page.accent, 12.sp, Modifier.weight(1f, fill = false), family = Mono, maxLines = 1)
+                    if (cur) Txt(selModel.orEmpty(), Page.accent, 12.sp, Modifier.weight(1f, fill = false), family = Mono, maxLines = 1)
                     SvgIcon(chevron, Page.muted, 14.dp)
                 }
             }
@@ -268,6 +281,7 @@ private fun ProviderList(store: AssistantStore, onGo: (String) -> Unit, onSetup:
             }
         }
     }
+    if (onAdd != null) AddProviderButton(onAdd)
 }
 
 /** 顶上的搜索框（在第二页）。 */
@@ -294,7 +308,7 @@ fun ModelFind(q: String, onChange: (String) -> Unit, modifier: Modifier = Modifi
 
 /** 第二页找型号：对上名字的那家全列，否则列对上的型号（快照、老型号也在）；没填 Key 的灰着，点了去填。 */
 @Composable
-private fun ModelSearch(store: AssistantStore, q: String, onPick: (String, String) -> Unit, onSetup: (String?) -> Unit) {
+private fun ModelSearch(store: AssistantStore, q: String, sel: String?, onPick: (String, String) -> Unit, onSetup: (String?) -> Unit) {
     val query = q.trim().lowercase()
     val nameHit = { p: Provider -> store.config(p.id).name.lowercase().contains(query) || p.id.contains(query) || p.note.lowercase().contains(query) }
     var any = false
@@ -312,12 +326,39 @@ private fun ModelSearch(store: AssistantStore, q: String, onPick: (String, Strin
         if (ready && ms.isEmpty()) Txt("这一家还没有型号", Page.muted.copy(alpha = .75f), 12.sp, Modifier.padding(start = 12.dp, bottom = 4.dp))
         if (!ready && ms.isEmpty()) Txt("填好 Key 后点「获取模型」拉型号", Page.muted.copy(alpha = .75f), 12.sp, Modifier.padding(start = 12.dp, bottom = 4.dp))
         ms.forEach { m ->
-            val sel = store.activeProvider == p.id && store.activeModel == m
-            if (ready) PickRow(m, tags(p.id, m), sel, q = query, mono = true) { onPick(p.id, m) }
+            val on = sel == "${p.id}|$m"
+            if (ready) PickRow(m, tags(p.id, m), on, q = query, mono = true) { onPick(p.id, m) }
             else PickRow(m, "", sel = false, dim = true, q = query, mono = true) { onSetup(p.id) }
         }
     }
     if (!any) Txt("没有叫「$q」的型号，也没有这一家", Page.muted, 13.sp, Modifier.fillMaxWidth().padding(vertical = 24.dp), align = TextAlign.Center)
+}
+
+/** 第二页最底下：虚线框「＋ 添加供应商」。 */
+@Composable
+private fun AddProviderButton(onClick: () -> Unit) {
+    Pressable(onClick, Modifier.fillMaxWidth().padding(top = 10.dp), label = "添加供应商") { pressed ->
+        val sc by animateFloatAsState(if (pressed) .985f else 1f, tween(if (pressed) 80 else 200), label = "addp")
+        Row(
+            Modifier.fillMaxWidth().graphicsLayer { scaleX = sc; scaleY = sc }
+                .background(if (pressed) veil(.05f) else Color.Transparent, RoundedCornerShape(16.dp))
+                .dashed(veil(.2f), 16.dp)
+                .height(46.dp),
+            verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.Center,
+        ) {
+            SvgIcon(plus, Page.muted, 16.dp)
+            Spacer(Modifier.width(6.dp))
+            Txt("添加供应商", Page.muted, 14.sp)
+        }
+    }
+}
+
+private val plus = Ic("M5 12h14M12 5v14")
+
+/** 虚线圆角框。 */
+private fun Modifier.dashed(color: Color, radius: Dp) = drawBehind {
+    val px = 1.dp.toPx()
+    drawRoundRect(color, cornerRadius = CornerRadius(radius.toPx()), style = Stroke(px, pathEffect = PathEffect.dashPathEffect(floatArrayOf(6.dp.toPx(), 4.dp.toPx()))))
 }
 
 @Composable
@@ -364,5 +405,13 @@ private fun PickRow(text: String, tags: String, sel: Boolean, dim: Boolean = fal
             }
             if (sel) SvgIcon(tick, Skin.accent.copy(alpha = 1f), 18.dp, stroke = 1.8f)
         }
+    }
+}
+
+/** 助理设置里第一页最上面那行「使用全局默认」：和型号行一个样子，选中时淡暖色块 + 勾。 */
+@Composable
+fun FollowGlobalRow(sel: Boolean, onClick: () -> Unit) {
+    Box(Modifier.fillMaxWidth().padding(start = 16.dp, end = 16.dp, top = 6.dp)) {
+        PickRow("使用全局默认", "", sel, q = "", onClick = onClick)
     }
 }

@@ -1210,6 +1210,7 @@ private fun ColumnScope.ProvidersScreen(store: AssistantStore, compact: Boolean,
                 }
             }
         }
+        if (q.isBlank()) KButton("添加供应商", Modifier.fillMaxWidth()) { openAddProvider(store) { id -> nav.screen = "provider/$id" } }
         Spacer(Modifier.height(8.dp))
     }
 }
@@ -1220,7 +1221,13 @@ private fun ColumnScope.ProvidersScreen(store: AssistantStore, compact: Boolean,
 private fun ColumnScope.ProviderScreen(store: AssistantStore, p: Provider, compact: Boolean, blur: Dp, nav: MineNav) {
     val saved = store.config(p.id)
     // 第 381 版：去掉「配置 / 模型」两个标签，模型连上后直接长在 Key 下面；余额放在标题右边
-    Title(saved.name, compact, onBack = { nav.back() }) { BalanceTag(store.balances[p.id]) }
+    Title(saved.name, compact, onBack = { nav.back() }) {
+        BalanceTag(store.balances[p.id])
+        // 自己加的供应商可以删（照 Kelivo provider_detail_page 的删除供应商）
+        if (p.custom) Pressable({ confirmRemoveProvider(store, p.id) { nav.screen = "providers" } }, label = "删除供应商") { _ ->
+            SvgIcon(KI.trash, K.danger, 20.dp, modifier = Modifier.padding(10.dp))
+        }
+    }
     Column(Modifier.weight(1f, fill = false).verticalScroll(rememberScrollState())) {
         ConfigTab(store, p, blur)
         Spacer(Modifier.height(12.dp))

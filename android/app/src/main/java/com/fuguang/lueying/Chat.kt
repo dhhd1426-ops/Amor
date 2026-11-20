@@ -1705,6 +1705,7 @@ private fun ModelDrawer(open: Boolean, store: AssistantStore, compact: Boolean, 
                     onPick = { pid, m -> store.use(pid, m); closeDrawer() },
                     onSetup = { id -> releaseSearch(); openCard(); if (id != null) card.openDetail(store, id) },
                     modifier = Modifier.weight(1f, fill = false),
+                    onAdd = { releaseSearch(); openAddProvider(store) { id -> openCard(); card.openDetail(store, id) } },
                 )
                 // 下：思考档、自带搜索钉住不动（第 385 版去掉了上面那道线和「更多模型」按钮；没填 Key 的配置卡从这里往上长）
                 Column(Modifier.onGloballyPositioned { moreAt = it }.padding(start = 20.dp, end = 20.dp, top = 6.dp, bottom = 14.dp)) {

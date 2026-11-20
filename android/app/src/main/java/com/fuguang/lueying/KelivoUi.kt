@@ -25,6 +25,7 @@ import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.heightIn
+import androidx.compose.foundation.layout.imePadding
 import androidx.compose.foundation.layout.offset
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
@@ -37,6 +38,7 @@ import androidx.compose.foundation.text.BasicTextField
 import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableFloatStateOf
 import androidx.compose.runtime.mutableStateOf
@@ -55,6 +57,8 @@ import androidx.compose.ui.layout.onSizeChanged
 import androidx.compose.ui.layout.positionInParent
 import androidx.compose.foundation.border
 import androidx.compose.ui.platform.LocalDensity
+import androidx.compose.ui.platform.LocalFocusManager
+import androidx.compose.ui.platform.LocalSoftwareKeyboardController
 import androidx.compose.ui.text.TextStyle
 import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.unit.Dp
@@ -62,6 +66,16 @@ import androidx.compose.ui.unit.IntOffset
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import kotlin.math.roundToInt
+import androidx.activity.compose.BackHandler
+import androidx.compose.foundation.layout.WindowInsets
+import androidx.compose.foundation.layout.statusBars
+import androidx.compose.foundation.layout.windowInsetsPadding
+import androidx.compose.foundation.layout.navigationBarsPadding
+import androidx.compose.foundation.layout.fillMaxHeight
+import androidx.compose.foundation.layout.wrapContentHeight
+import androidx.compose.runtime.DisposableEffect
+import androidx.compose.runtime.key
+import androidx.compose.runtime.mutableStateListOf
 
 /**
  * 照 Kelivo 样子的一套小部件（助理设置、世界书用）：蓝紫色点缀、色块卡片、一行一个设置、iOS 式开关、底部弹层。
@@ -280,37 +294,83 @@ fun KCheck(on: Boolean) {
 class KSheetState {
     var content by mutableStateOf<(@Composable ColumnScope.() -> Unit)?>(null)
     var shown by mutableStateOf(false)
-    fun open(c: @Composable ColumnScope.() -> Unit) { content = c; shown = true }
+    /** true = 内容自己管边距和滚动（选择模型那两页），弹层不再套一层滚动。 */
+    var bare by mutableStateOf(false)
+    fun open(c: @Composable ColumnScope.() -> Unit) { content = c; bare = false; shown = true }
+    fun openBare(c: @Composable ColumnScope.() -> Unit) { content = c; bare = true; shown = true }
     fun close() { shown = false }
 }
 
+/**
+ * 页面里只登记弹层；真正画在整屏的 [SheetLayerHost]（MainActivity 根上）。
+ * 原来画在页面内容区里：遮罩只盖内容区那一块方框，圆角外露出方角黑边，弹层也碰不到屏幕两边和底边。
+ */
 @Composable
+@Suppress("UnusedReceiverParameter")
 fun BoxScope.KSheetHost(s: KSheetState) {
+    DisposableEffect(s) {
+        SheetLayer.sheets += s
+        onDispose { SheetLayer.sheets -= s; s.shown = false; s.content = null }
+    }
+}
+
+/** 整屏弹层：页面登记进来的弹层都画在这里，后登记的叠在上面。 */
+object SheetLayer { val sheets = mutableStateListOf<KSheetState>() }
+
+@Composable
+fun SheetLayerHost() {
+    SheetLayer.sheets.toList().forEach { s -> key(s) { RootSheet(s) } }
+    // 全 App 共用的那个（添加供应商等），总在最上面
+    RootSheet(AppSheet)
+}
+
+@Composable
+private fun RootSheet(s: KSheetState) {
     val t by animateFloatAsState(if (s.shown) 1f else 0f, if (s.shown) tween(340, easing = K.decel) else tween(220, easing = K.accel), label = "ksheet",
         finishedListener = { if (!s.shown) s.content = null })
+    // 关弹层时先收键盘、清焦点，键盘和弹层一起退场，不会弹层先落、键盘后掉造成页面跳一下
+    val focus = LocalFocusManager.current
+    val keyboard = LocalSoftwareKeyboardController.current
+    // 只在「开着 → 关上」那一下收；页面登记弹层时不碰别处的焦点
+    var wasShown by remember { mutableStateOf(false) }
+    LaunchedEffect(s.shown) {
+        if (wasShown && !s.shown) { focus.clearFocus(force = true); keyboard?.hide() }
+        wasShown = s.shown
+    }
+    // 返回手势先关弹层
+    BackHandler(enabled = s.shown) { s.close() }
     val c = s.content ?: return
     var drag by remember { mutableFloatStateOf(0f) }
     var h by remember { mutableFloatStateOf(0f) }
     val d = LocalDensity.current
-    Box(Modifier.matchParentSize().graphicsLayer { alpha = t }.background(Color(0x99000000)).pointerInput(Unit) { detectTapGestures { s.close() } })
-    Column(
-        Modifier.align(Alignment.BottomCenter).fillMaxWidth().heightIn(max = 620.dp)
-            .onSizeChanged { h = it.height.toFloat() }
-            .graphicsLayer { translationY = (1f - t) * (h + 40f) + drag }
-            .shadow(24.dp, RoundedCornerShape(topStart = 16.dp, topEnd = 16.dp))
-            .clip(RoundedCornerShape(topStart = 16.dp, topEnd = 16.dp)).background(K.card)
-            .pointerInput(Unit) { detectTapGestures { } },
-    ) {
-        Box(
-            Modifier.fillMaxWidth().padding(top = 10.dp, bottom = 12.dp).pointerInput(Unit) {
-                detectVerticalDragGestures(
-                    onDragEnd = { if (drag > with(d) { 80.dp.toPx() }) s.close(); drag = 0f },
-                    onDragCancel = { drag = 0f },
-                ) { _, dy -> drag = (drag + dy).coerceAtLeast(0f) }
-            },
-            contentAlignment = Alignment.Center,
-        ) { Box(Modifier.size(40.dp, 4.dp).clip(RoundedCornerShape(50)).background(K.ink.copy(alpha = .2f))) }
-        Column(Modifier.fillMaxWidth().verticalScroll(rememberScrollState()).padding(start = 18.dp, end = 18.dp, bottom = 26.dp)) { c() }
+    val shape = RoundedCornerShape(topStart = 20.dp, topEnd = 20.dp)
+    Box(Modifier.fillMaxSize()) {
+        Box(Modifier.matchParentSize().graphicsLayer { alpha = t }.background(Color(0x99000000)).pointerInput(Unit) { detectTapGestures { s.close() } })
+        // edge-to-edge 下 adjustResize 不生效：用 ime 内边距把弹层托在键盘上方，跟着键盘动画逐帧走；
+        // 可用高度随之缩小，弹层内容滚动，获得焦点的输入框由 Compose 自动滚进可见区域。
+        Box(Modifier.matchParentSize().windowInsetsPadding(WindowInsets.statusBars).imePadding()) {
+            Column(
+                Modifier.align(Alignment.BottomCenter).widthIn(max = 720.dp).fillMaxWidth().fillMaxHeight(.9f).wrapContentHeight(Alignment.Bottom)
+                    .onSizeChanged { h = it.height.toFloat() }
+                    .graphicsLayer { translationY = (1f - t) * (h + 40f) + drag }
+                    .clip(shape).background(K.card)
+                    .pointerInput(Unit) { detectTapGestures { } }
+                    // 底色铺到屏幕底边，内容让开导航条
+                    .navigationBarsPadding(),
+            ) {
+                Box(
+                    Modifier.fillMaxWidth().padding(top = 10.dp, bottom = 12.dp).pointerInput(Unit) {
+                        detectVerticalDragGestures(
+                            onDragEnd = { if (drag > with(d) { 80.dp.toPx() } || drag > h * .28f) s.close(); drag = 0f },
+                            onDragCancel = { drag = 0f },
+                        ) { _, dy -> drag = (drag + dy).coerceAtLeast(0f) }
+                    },
+                    contentAlignment = Alignment.Center,
+                ) { Box(Modifier.size(40.dp, 4.dp).clip(RoundedCornerShape(50)).background(K.ink.copy(alpha = .2f))) }
+                if (s.bare) Column(Modifier.fillMaxWidth().weight(1f, fill = false).padding(bottom = 10.dp)) { c() }
+                else Column(Modifier.fillMaxWidth().weight(1f, fill = false).verticalScroll(rememberScrollState()).padding(start = 18.dp, end = 18.dp, bottom = 18.dp)) { c() }
+            }
+        }
     }
 }
 

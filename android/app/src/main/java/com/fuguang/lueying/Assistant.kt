@@ -31,9 +31,11 @@ data class Provider(
     val letter: String,
     val note: String = "",
     val hasBalance: Boolean = false,
+    /** 用户在「添加供应商」里自己加的（照 Kelivo add_provider_sheet：OpenAI 兼容 / Claude），可删。 */
+    val custom: Boolean = false,
 )
 
-val PROVIDERS = listOf(
+val BUILTIN_PROVIDERS = listOf(
     Provider("deepseek", "DeepSeek", "openai", "https://api.deepseek.com/v1", "/chat/completions", "D", hasBalance = true),
     Provider("claude", "Claude", "anthropic", "https://api.anthropic.com/v1", "/messages", "C", note = "Anthropic 接口"),
     Provider("gemini", "Gemini", "openai", "https://generativelanguage.googleapis.com/v1beta/openai", "/chat/completions", "G"),
@@ -45,7 +47,13 @@ val PROVIDERS = listOf(
     Provider("qwen", "通义千问", "openai", "https://dashscope.aliyuncs.com/compatible-mode/v1", "/chat/completions", "千", note = "阿里云百炼"),
 )
 
-fun provider(id: String): Provider = PROVIDERS.firstOrNull { it.id == id } ?: PROVIDERS.first()
+/** 用户自己加的供应商；AssistantStore 读写。 */
+val CUSTOM_PROVIDERS = mutableStateListOf<Provider>()
+
+/** 内置的几家 + 用户自己加的。 */
+val PROVIDERS: List<Provider> get() = BUILTIN_PROVIDERS + CUSTOM_PROVIDERS
+
+fun provider(id: String): Provider = PROVIDERS.firstOrNull { it.id == id } ?: BUILTIN_PROVIDERS.first()
 
 /** 用户对某个供应商的设置，只存在本机。 */
 data class ProviderConfig(
@@ -107,6 +115,19 @@ class AssistantStore(private val prefs: Prefs) {
             o.optJSONObject("efforts")?.let { e -> e.keys().forEach { k -> efforts[k] = e.optString(k) } }
             o.optJSONObject("searches")?.let { e -> e.keys().forEach { k -> searches[k] = e.optBoolean(k) } }
             o.optJSONArray("recent")?.let { a -> repeat(a.length()) { recent.add(a.getString(it)) } }
+            o.optJSONArray("custom")?.let { a ->
+                CUSTOM_PROVIDERS.clear()
+                repeat(a.length()) { i ->
+                    val c = a.optJSONObject(i) ?: return@repeat
+                    val id = c.optString("id").takeIf { it.isNotBlank() && BUILTIN_PROVIDERS.none { b -> b.id == it } } ?: return@repeat
+                    val kind = if (c.optString("kind") == "anthropic") "anthropic" else "openai"
+                    val p = Provider(id, c.optString("name").ifBlank { "自定义" }, kind, c.optString("base"), c.optString("path").ifBlank { defaultPath(kind) },
+                        c.optString("letter").ifBlank { "#" }, custom = true)
+                    CUSTOM_PROVIDERS += p
+                    configs[id] = ProviderConfig.default(p).copy(models = emptyList())
+                }
+                order.addAll(CUSTOM_PROVIDERS.map { it.id }.filter { it !in order })
+            }
             o.optJSONArray("order")?.let { a ->
                 val saved = List(a.length()) { a.getString(it) }.filter { id -> PROVIDERS.any { it.id == id } }.distinct()
                 order.clear(); order.addAll(saved + PROVIDERS.map { it.id }.filter { it !in saved })
@@ -123,7 +144,7 @@ class AssistantStore(private val prefs: Prefs) {
                     enabled = c.optBoolean("enabled", false),
                     balance = c.optBoolean("balance", d.balance),
                     // 以前存的是空列表（那时只有 DeepSeek 带默认型号）：补上现在的默认型号
-                    models = c.optJSONArray("models")?.let { a -> List(a.length()) { a.getString(it) } }?.takeIf { it.isNotEmpty() } ?: d.models,
+                    models = c.optJSONArray("models")?.let { a -> List(a.length()) { a.getString(it) } }?.takeIf { it.isNotEmpty() || p.custom } ?: d.models,
                 )
             }
         }
@@ -151,6 +172,35 @@ class AssistantStore(private val prefs: Prefs) {
     }
 
     fun rename(v: String) { name = v; save() }
+
+    /** 添加供应商：返回新的 id。名字没填用接口类型的默认名；id 不和已有的重。 */
+    fun addProvider(kind: String, name: String, key: String, base: String, path: String, enabled: Boolean): String {
+        val k = if (kind == "anthropic") "anthropic" else "openai"
+        val shown = name.trim().ifBlank { if (k == "anthropic") "Claude" else "OpenAI" }
+        val stem = "custom-" + (shown.lowercase().replace(Regex("[^a-z0-9]+"), "-").trim('-').ifBlank { "p" })
+        var id = stem; var n = 2
+        while (PROVIDERS.any { it.id == id }) id = "$stem-${n++}"
+        val p = Provider(id, shown, k, base.trim().trimEnd('/'), path.trim().ifBlank { defaultPath(k) }, shown.take(1).uppercase(), custom = true)
+        CUSTOM_PROVIDERS += p
+        configs[id] = ProviderConfig(name = shown, key = key.trim(), base = p.base, path = p.path, enabled = enabled)
+        order += id
+        save()
+        return id
+    }
+
+    /** 删掉自己加的供应商；正在用它的全局模型、助理的默认模型一起退回去。 */
+    fun removeProvider(id: String) {
+        if (CUSTOM_PROVIDERS.none { it.id == id }) return
+        CUSTOM_PROVIDERS.removeAll { it.id == id }
+        configs.remove(id); order.remove(id); balances.remove(id)
+        recent.removeAll { it.startsWith("$id|") }
+        AssistantExt.dropProvider(id)
+        if (activeProvider == id) {
+            val next = ready().firstOrNull() ?: BUILTIN_PROVIDERS.first()
+            activeProvider = next.id; activeModel = config(next.id).models.firstOrNull().orEmpty()
+        }
+        save()
+    }
 
     private fun effortKey(pid: String, model: String) = pid + "|" + model.trim().lowercase()
 
@@ -192,10 +242,14 @@ class AssistantStore(private val prefs: Prefs) {
         }
         prefs.putString(KEY, JSONObject().apply {
             put("name", name); put("provider", activeProvider); put("model", activeModel); put("efforts", JSONObject(efforts.toMap())); put("searches", JSONObject(searches.toMap())); put("recent", JSONArray(recent.toList())); put("configs", cs); put("order", JSONArray(order.toList()))
+            put("custom", JSONArray(CUSTOM_PROVIDERS.map { JSONObject().put("id", it.id).put("name", it.name).put("kind", it.kind).put("base", it.base).put("path", it.path).put("letter", it.letter) }))
         }.toString())
     }
 
-    companion object { private const val KEY = "assistant-config" }
+    companion object {
+        private const val KEY = "assistant-config"
+        fun defaultPath(kind: String) = if (kind == "anthropic") "/messages" else "/chat/completions"
+    }
 }
 
 /** 联网：列出模型、测试某个模型、查 DeepSeek 余额。失败时返回一句能看懂的中文原因。 */

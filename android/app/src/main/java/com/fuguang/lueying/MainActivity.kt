@@ -6,6 +6,7 @@ import androidx.activity.ComponentActivity
 import androidx.activity.SystemBarStyle
 import androidx.activity.compose.setContent
 import androidx.activity.enableEdgeToEdge
+import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
@@ -89,15 +90,19 @@ class MainActivity : ComponentActivity() {
                 controller.isAppearanceLightStatusBars = light
                 controller.isAppearanceLightNavigationBars = light
             }
-            FuguangApp(
-                prefs = prefs,
-                fullscreen = fullscreen,
-                setFullscreen = { on ->
-                    fullscreen = on
-                    if (on) controller.hide(WindowInsetsCompat.Type.systemBars())
-                    else controller.show(WindowInsetsCompat.Type.systemBars())
-                },
-            )
+            androidx.compose.foundation.layout.Box(androidx.compose.ui.Modifier.fillMaxSize()) {
+                FuguangApp(
+                    prefs = prefs,
+                    fullscreen = fullscreen,
+                    setFullscreen = { on ->
+                        fullscreen = on
+                        if (on) controller.hide(WindowInsetsCompat.Type.systemBars())
+                        else controller.show(WindowInsetsCompat.Type.systemBars())
+                    },
+                )
+                // 所有底部弹层画在整屏这一层：遮罩铺满，弹层贴屏幕两边和底边
+                SheetLayerHost()
+            }
         }
     }
 
