@@ -37,7 +37,7 @@ object AttachRead {
 
     /**
      * 认编码（照浏览器 / ICU 的做法）：先看 BOM；能严格按 UTF-8 解开就是 UTF-8；
-     * 否则交给系统自带的 ICU 编码检测（android.icu.text.CharsetDetector，按中文提示），认不出就按 GB18030（GBK 的超集）。
+     * 否则看是不是没有 BOM 的 UTF-16，再依次严格试 GB18030（GBK 的超集）、Big5，都不行按 GB18030 宽松读。
      * 以前只在 UTF-8 / GBK 之间二选一，UTF-16、Big5 和夹了几个坏字节的 GBK 会读成乱码。
      */
     private fun decode(b: ByteArray): String {
@@ -47,34 +47,31 @@ object AttachRead {
             b.size >= 2 && b[0] == 0xFF.toByte() && b[1] == 0xFE.toByte() -> return String(cut(2), Charsets.UTF_16LE)
             b.size >= 2 && b[0] == 0xFE.toByte() && b[1] == 0xFF.toByte() -> return String(cut(2), Charsets.UTF_16BE)
         }
-        if (strictUtf8(b)) return String(b, Charsets.UTF_8)
-        val name = runCatching {
-            val d = android.icu.text.CharsetDetector()
-            d.setDeclaredEncoding("GB18030")
-            d.setText(if (b.size > 256_000) b.copyOf(256_000) else b)
-            // 中文书里西文单字节编码多半是误判，跳过
-            d.detectAll().firstOrNull { m -> m.confidence >= 30 && !m.name.startsWith("ISO-8859") && !m.name.startsWith("windows-125") && runCatching { charset(m.name) }.isSuccess }?.name
-        }.getOrNull()
-        return String(b, charset(name ?: "GB18030"))
+        if (strict(b, Charsets.UTF_8)) return String(b, Charsets.UTF_8)
+        // 没有 BOM 的 UTF-16：英文、标点的高字节是 0，零字节集中在一边
+        val sample = b.copyOf(minOf(b.size, 4000))
+        val odd = sample.indices.count { it % 2 == 1 && sample[it] == 0.toByte() }
+        val even = sample.indices.count { it % 2 == 0 && sample[it] == 0.toByte() }
+        if (odd > sample.size / 8 && even < odd / 8) return String(b, Charsets.UTF_16LE)
+        if (even > sample.size / 8 && odd < even / 8) return String(b, Charsets.UTF_16BE)
+        // 国内的 txt 多是 GBK / GB18030；严格解不开再试 Big5（港台），都不行按 GB18030 宽松读
+        for (name in listOf("GB18030", "Big5")) if (strict(b, charset(name))) return String(b, charset(name))
+        return String(b, charset("GB18030"))
     }
 
-    /** 整段都是合法的 UTF-8（末尾被截断的半个字不算错）。 */
-    private fun strictUtf8(b: ByteArray): Boolean {
-        val dec = Charsets.UTF_8.newDecoder()
+    /** 整段都能按这个编码严格解开；末尾被截断的半个字不算错（endOfInput = false 时残缺的结尾只是 UNDERFLOW）。 */
+    private fun strict(b: ByteArray, cs: java.nio.charset.Charset): Boolean {
+        val dec = cs.newDecoder()
             .onMalformedInput(java.nio.charset.CodingErrorAction.REPORT)
             .onUnmappableCharacter(java.nio.charset.CodingErrorAction.REPORT)
-        val body = if (b.size > 4) b.copyOf(b.size - trailing(b)) else b
-        return runCatching { dec.decode(java.nio.ByteBuffer.wrap(body)) }.isSuccess
-    }
-
-    /** 末尾不完整的 UTF-8 字节数（读文件只读了前 8MB，可能切在一个字中间）。 */
-    private fun trailing(b: ByteArray): Int {
-        for (k in 1..3) {
-            val x = b[b.size - k].toInt() and 0xFF
-            if (x and 0xC0 == 0xC0) return if (k < (if (x >= 0xF0) 4 else if (x >= 0xE0) 3 else 2)) k else 0
-            if (x and 0xC0 != 0x80) return 0
+        val input = java.nio.ByteBuffer.wrap(b)
+        val out = java.nio.CharBuffer.allocate(16_384)
+        while (true) {
+            val r = dec.decode(input, out, false)
+            if (r.isError) return false
+            if (r.isUnderflow) return true
+            out.clear()
         }
-        return 0
     }
 
     private fun looksText(b: ByteArray): Boolean = b.isNotEmpty() && (
