@@ -1,0 +1,9 @@
+<!DOCTYPE html><html><head><meta charset="utf-8"><title>bench</title>
+<style>html,body{margin:0;background:#000}canvas{width:1280px;height:720px;display:block}</style></head>
+<body><canvas id="c"></canvas><script src="we.js"></script><script>
+const w = new URLSearchParams(location.search).get('w');
+window.st = { state: 'loading' };
+WE.create(document.getElementById('c'), 'w/' + w + '/', { engine: 'engine/', view: () => ({ zoom: 1, x: .5, y: .5, align: 'fill' }) })
+  .then(async r => { await r.ready(); window.st = { state: 'ok', layers: r.layers, skipped: r.skipped }; })
+  .catch(e => { window.st = { state: 'err', msg: String(e && e.message || e) }; });
+</script></body></html>
