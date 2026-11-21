@@ -1,0 +1,30 @@
+name: Publish check APK 551
+
+on:
+  push:
+    branches: [release/check-apk-551]
+
+permissions:
+  actions: read
+  contents: write
+
+jobs:
+  publish:
+    runs-on: ubuntu-latest
+    env:
+      GH_TOKEN: ${{ github.token }}
+      GH_REPO: ${{ github.repository }}
+    steps:
+      - name: Verify and publish the existing APK
+        shell: bash
+        run: |
+          set -euo pipefail
+          gh api "repos/$GH_REPO/actions/artifacts/14714650069/zip" > artifact.zip
+          echo "f52544f112a3a2ac8fa1fd69662dfb3e9ad8d803a461cef82453553b4e66571e  artifact.zip" | sha256sum -c
+          unzip -p artifact.zip fuguang-lueying-551.apk > fuguang-lueying-551.apk
+          test -s fuguang-lueying-551.apk
+          unzip -tq fuguang-lueying-551.apk
+          gh release create app-build-551 fuguang-lueying-551.apk \
+            --target 88dc3b9407e1bf52cfcd12667b4f58a9ad3be763 --prerelease \
+            --title "浮光掠影 App 第 551 版" \
+            --notes "壁纸：粒子系统、用户属性、壁纸设置面板（覆盖 / 填充 / 自由、翻转、速度、背景色、重置）。构建记录：https://github.com/dhhd1426-ops/Amor/actions/runs/44921486067"
