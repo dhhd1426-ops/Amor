@@ -1,0 +1,30 @@
+name: Publish check APK 536
+
+on:
+  push:
+    branches: [release/check-apk-536]
+
+permissions:
+  actions: read
+  contents: write
+
+jobs:
+  publish:
+    runs-on: ubuntu-latest
+    env:
+      GH_TOKEN: ${{ github.token }}
+      GH_REPO: ${{ github.repository }}
+    steps:
+      - name: Verify and publish the existing APK
+        shell: bash
+        run: |
+          set -euo pipefail
+          gh api "repos/$GH_REPO/actions/artifacts/14684365422/zip" > artifact.zip
+          echo "901dea881d28bdcdeb14f83d0777221aa75c355f2d3060c1d5cdf497cd85c5cc  artifact.zip" | sha256sum -c
+          unzip -p artifact.zip fuguang-lueying-536.apk > fuguang-lueying-536.apk
+          test -s fuguang-lueying-536.apk
+          unzip -tq fuguang-lueying-536.apk
+          gh release create app-build-536 fuguang-lueying-536.apk \
+            --target 5dcb6c69e69c3d935b9a40f5f3bc8d9f8edacdc1 --prerelease \
+            --title "浮光掠影 App 第 536 版" \
+            --notes "用量页改版：当前渠道余额卡（满格按充值后总额）、Token 统计（7 天 / 30 天 / 全部）、DeepSeek 应用内充值。构建记录：https://github.com/dhhd1426-ops/Amor/actions/runs/44846917366"
