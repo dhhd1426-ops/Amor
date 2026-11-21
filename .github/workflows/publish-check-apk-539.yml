@@ -1,0 +1,30 @@
+name: Publish check APK 539
+
+on:
+  push:
+    branches: [release/check-apk-539]
+
+permissions:
+  actions: read
+  contents: write
+
+jobs:
+  publish:
+    runs-on: ubuntu-latest
+    env:
+      GH_TOKEN: ${{ github.token }}
+      GH_REPO: ${{ github.repository }}
+    steps:
+      - name: Verify and publish the existing APK
+        shell: bash
+        run: |
+          set -euo pipefail
+          gh api "repos/$GH_REPO/actions/artifacts/14692287055/zip" > artifact.zip
+          echo "fce3e0fceac6839f54011435b3ad85c1fb8704108a6a377a191c7aaab564f4fb  artifact.zip" | sha256sum -c
+          unzip -p artifact.zip fuguang-lueying-539.apk > fuguang-lueying-539.apk
+          test -s fuguang-lueying-539.apk
+          unzip -tq fuguang-lueying-539.apk
+          gh release create app-build-539 fuguang-lueying-539.apk \
+            --target 4dc58d59e136579491b41d1ae553ce1b925d6ac9 --prerelease \
+            --title "浮光掠影 App 第 539 版" \
+            --notes "子助理读书：聊天里发来太长的书，可读成小说世界书（人物 / 关系 / 世界 / 剧情），助理能查原文；拆书模块已删除。构建记录：https://github.com/dhhd1426-ops/Amor/actions/runs/44866894544"
