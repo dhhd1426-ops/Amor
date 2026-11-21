@@ -5,6 +5,8 @@
     <uses-permission android:name="android.permission.WAKE_LOCK" />
     <uses-permission android:name="android.permission.INTERNET" />
     <uses-permission android:name="android.permission.RECORD_AUDIO" />
+    <!-- 场景壁纸跟着正在播放的声音动（Visualizer 挂全局输出要这个） -->
+    <uses-permission android:name="android.permission.MODIFY_AUDIO_SETTINGS" />
 
     <!-- 内置浏览器下载视频：后台接着下，通知栏有进度 -->
     <uses-permission android:name="android.permission.ACCESS_NETWORK_STATE" />

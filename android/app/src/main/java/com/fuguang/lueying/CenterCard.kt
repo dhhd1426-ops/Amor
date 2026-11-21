@@ -131,7 +131,7 @@ fun CenterCardLayer(
         Box(
             Modifier.fillMaxSize()
                 .graphicsLayer { alpha = pv.coerceIn(0f, 1f) }
-                .background(if (whole) Skin.scrim(.3f) else Skin.scrim(.55f))
+                .background(if (Walls.clear) Color.Transparent else if (whole) Skin.scrim(.3f) else Skin.scrim(.55f)) // 壁纸页：底色让开，看得见整张壁纸
                 .pointerInput(Unit) { detectTapGestures { card.open = false } },
         )
         val cardW = min(340.dp, maxWidth - 40.dp)
@@ -159,7 +159,7 @@ fun CenterCardLayer(
                     clip = true
                     shadowElevation = 24.dp.toPx() * (1f - fv)
                 }
-                .then(if (Skin.glass) Modifier.frost(RectangleShape, Skin.card) else Modifier.background(Skin.card))
+                .then(if (Walls.clear) Modifier else if (Skin.glass) Modifier.frost(RectangleShape, Skin.card) else Modifier.background(Skin.card))
                 .pointerInput(Unit) { detectTapGestures { } },
         ) {
             val pad = Modifier.fillMaxSize().padding(

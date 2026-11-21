@@ -168,6 +168,7 @@ fun FuguangApp(prefs: Prefs, fullscreen: Boolean, setFullscreen: (Boolean) -> Un
         val backBlur by androidx.compose.animation.core.animateDpAsState(
             when {
                 zen -> 0.dp
+                Walls.clear -> 0.dp // 壁纸页：要看清楚才好调构图
                 chatState.messages.isEmpty() && !chatState.busy -> 0.dp
                 else -> 18.dp
             },
@@ -179,7 +180,7 @@ fun FuguangApp(prefs: Prefs, fullscreen: Boolean, setFullscreen: (Boolean) -> Un
             Box(Modifier.fillMaxSize().hazeSource(haze)) {
                 // 暗黑优雅、白色主题不放背景画面，整页是实底
                 if (Skin.frost) {
-                    SceneBackground(
+                    WallBackdrop(
                         playing = playing,
                         positionX = if (compact) .61f else .62f,
                         onFailed = { paused = true },
@@ -187,7 +188,7 @@ fun FuguangApp(prefs: Prefs, fullscreen: Boolean, setFullscreen: (Boolean) -> Un
                     Shade(dim = dim / 100f, compact = compact, zen = zen)
                 } else Box(Modifier.fillMaxSize().background(Skin.pageBrush))
                 // 助理设置 › 聊天背景
-                AssistantBackdrop()
+                if (!Walls.clear) AssistantBackdrop()
             }
         }
 
@@ -197,8 +198,10 @@ fun FuguangApp(prefs: Prefs, fullscreen: Boolean, setFullscreen: (Boolean) -> Un
                 when { zen -> 0f; soon -> .82f; else -> 1f },
                 androidx.compose.animation.core.tween(if (zen) 1100 else if (soon) 900 else 260, easing = Curves.standard), label = "zen",
             )
+            // 壁纸页：聊天页留在原地不拆，只是淡掉，让出壁纸
+            val wallAway by androidx.compose.animation.core.animateFloatAsState(if (Walls.clear) 0f else 1f, androidx.compose.animation.core.tween(260, easing = Curves.standard), label = "wallAway")
             if (chatAlpha > 0f) {
-                Box(Modifier.fillMaxSize().pageIn(chatAlpha)) {
+                Box(Modifier.fillMaxSize().pageIn(chatAlpha * wallAway)) {
                     ChatPage(
                         compact = compact,
                         tiny = tiny,

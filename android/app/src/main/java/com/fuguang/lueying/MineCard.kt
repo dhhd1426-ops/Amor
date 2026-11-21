@@ -82,7 +82,7 @@ private val warmInk: Color get() = Skin.onAccent
 /** 页面深度：往深处走新页从右边进，往回走从左边进。 */
 private fun depth(s: String) = when {
     s == "mine" -> 0
-    s == "assistant" || s == "usage" || s == "mcp" || s == "about" || s == "features" || s == "theme" || s == "whale" || s == "voice" -> 1
+    s == "assistant" || s == "usage" || s == "mcp" || s == "about" || s == "features" || s == "theme" || s == "wallpaper" || s == "whale" || s == "voice" -> 1
     s == "worldbook" -> 1
     s.startsWith("worldbook/") -> 2
     s == "persona" || s == "voice/api" || s.startsWith("mcp/") || s == "search" || s == "skills" || s == "gallery" -> 2
@@ -99,7 +99,7 @@ fun MineCardLayer(store: AssistantStore, nav: MineNav) {
         MineCard, nav.screen, ::depth,
         onBack = {
             when (nav.screen) {
-                "about", "theme", "whale", "voice" -> { nav.screen = "mine"; true }
+                "about", "theme", "wallpaper", "whale", "voice" -> { nav.screen = "mine"; true }
                 "voice/api" -> { nav.screen = "voice"; true }
                 else -> nav.screen != "mine" && nav.back()
             }
@@ -120,6 +120,7 @@ fun MineCardLayer(store: AssistantStore, nav: MineNav) {
             "about" -> AboutPage { nav.screen = "mine" }
             "whale" -> WhalePage({ nav.screen = "mine" }, { MineCard.open = false; Whale.edit(true) }, { MineCard.open = false; Whale.dress(true) })
             "theme" -> ThemePage { nav.screen = "mine" }
+            "wallpaper" -> WallpaperPage { nav.up("mine") }
             "voice" -> SpeechPage({ nav.screen = "mine" }) { nav.screen = "voice/api" }
             "voice/api" -> SpeechApiPage { nav.screen = "voice" }
             "features" -> FeaturesPage({ nav.up("mine") }, { nav.screen = "search" }, { nav.screen = "skills" })
@@ -230,6 +231,14 @@ private fun MineCardList(store: AssistantStore, t: Float, onGo: (String) -> Unit
         Txt(Skin.name(), Page.muted, 13.5.sp, maxLines = 1)
         Spacer(Modifier.width(4.dp))
         SvgIcon(chevron, Page.muted.copy(alpha = .6f), 15.dp, stroke = 1.8f)
+    }
+    Spacer(Modifier.height(6.dp))
+    Column(Modifier.spot("wall")) {
+        MineRow(5, t, "壁纸", "", { onGo("wallpaper") }, glyph = { SvgIcon(WallGlyph, warm, 19.dp, stroke = 1.5f) }) {
+            Txt(Walls.name(), Page.muted, 13.5.sp, Modifier.widthIn(max = 150.dp), maxLines = 1)
+            Spacer(Modifier.width(4.dp))
+            SvgIcon(chevron, Page.muted.copy(alpha = .6f), 15.dp, stroke = 1.8f)
+        }
     }
     Spacer(Modifier.height(6.dp))
     Column(Modifier.spot("backup")) { BackupRow(6, t) }

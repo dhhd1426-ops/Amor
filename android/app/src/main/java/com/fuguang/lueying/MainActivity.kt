@@ -63,6 +63,7 @@ class MainActivity : ComponentActivity() {
         ModelFit.init(prefs)
         WebSearch.init(prefs)
         Skin.init(prefs)
+        Walls.init(this, prefs)
         AppIcon.init(this, prefs)
         AdBlock.init(this, prefs)
         Downloads.init(this, prefs)
