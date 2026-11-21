@@ -1,0 +1,30 @@
+name: Publish check APK 538
+
+on:
+  push:
+    branches: [release/check-apk-538]
+
+permissions:
+  actions: read
+  contents: write
+
+jobs:
+  publish:
+    runs-on: ubuntu-latest
+    env:
+      GH_TOKEN: ${{ github.token }}
+      GH_REPO: ${{ github.repository }}
+    steps:
+      - name: Verify and publish the existing APK
+        shell: bash
+        run: |
+          set -euo pipefail
+          gh api "repos/$GH_REPO/actions/artifacts/14691757432/zip" > artifact.zip
+          echo "52e09fe83ee25305fbcdb08773a57a079bfe4ed30778782552b4e5b691f4f6cf  artifact.zip" | sha256sum -c
+          unzip -p artifact.zip fuguang-lueying-538.apk > fuguang-lueying-538.apk
+          test -s fuguang-lueying-538.apk
+          unzip -tq fuguang-lueying-538.apk
+          gh release create app-build-538 fuguang-lueying-538.apk \
+            --target 4317b150f52c6606a1c2012ae837369c9692dbc7 --prerelease \
+            --title "浮光掠影 App 第 538 版" \
+            --notes "世界书加小说分组（人物 / 关系 / 世界 / 剧情，新建预填模板、看示例、同时出现才触发）；聊天里的文字文件按模型窗口整份带、每轮都带。构建记录：https://github.com/dhhd1426-ops/Amor/actions/runs/44865235900"
