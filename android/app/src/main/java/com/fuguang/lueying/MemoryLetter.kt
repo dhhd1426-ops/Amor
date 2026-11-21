@@ -100,6 +100,7 @@ object MemMenu {
     fun close() { mem = null; if (deleting == null) held = null }
 }
 
+private val pencil = Ic("M5 19l1-4L15.5 5.5a2.1 2.1 0 0 1 3 3L9 18l-4 1ZM13.5 7.5l3 3")
 private val trash = Ic("M4.5 7h15M9.5 7V5h5v2M6.5 7l1 12.5h9l1-12.5M10 11v5M14 11v5")
 private val back = Ic("M14.5 6l-6 6 6 6")
 
@@ -155,7 +156,7 @@ internal fun MemMenuLayer(p: Persona, onDeleted: (Mem, Int) -> Unit) {
         val m = shown
         if (m != null && t.value > 0f) {
             Box(Modifier.fillMaxSize().pointerInput(Unit) { detectTapGestures { MemMenu.close() } })
-            val menuH = with(density) { (44 + 12 + 29).dp.toPx() }
+            val menuH = with(density) { (44 * 2 + 12 + 29).dp.toPx() }
             val gap = with(density) { 6.dp.toPx() }
             var top = at.bottom + gap
             var below = true
@@ -179,8 +180,16 @@ internal fun MemMenuLayer(p: Persona, onDeleted: (Mem, Int) -> Unit) {
                     .padding(vertical = 6.dp),
             ) {
                 Txt(m.text, Page.muted, 12.sp, Modifier.padding(start = 14.dp, end = 14.dp, top = 6.dp, bottom = 5.dp).widthIn(max = 190.dp), maxLines = 1)
+                MenuItem(pencil, "编辑", red = false, filled = false) {
+                    scope.launch { delay(90); MemMenu.held = null; MemMenu.close(); MemEdit.open(p, m, onDeleted) }
+                }
+                // 删了不再先问：底下「撤销」4 秒内能放回去
                 MenuItem(trash, "删除", red = true, filled = false) {
-                    scope.launch { delay(90); MemMenu.deleting = m; MemMenu.close() }
+                    scope.launch {
+                        delay(90); MemMenu.held = null; MemMenu.close()
+                        val i = p.items.indexOf(m)
+                        if (i >= 0) { Memory.remove(p, m); onDeleted(m, i) }
+                    }
                 }
             }
         }

@@ -297,7 +297,7 @@ ${all.joinToString("\n\n") { "[${it.code}] ${MemTree.date(it)} · ${MemTree.kind
                 "update" -> {
                     if (old == null || old.span || sensitive(title) || sensitive(body)) continue
                     val at = her.items.indexOf(old).takeIf { it >= 0 } ?: continue
-                    val k = if (o.has("kind")) kindOf(o.optString("kind"), old.kind) else old.kind
+                    val k = if (o.has("kind") && !old.kind.startsWith(Mem.TAG)) kindOf(o.optString("kind"), old.kind) else old.kind
                     // 他亲手写的：原话不改（第一次写正文时照原话加时间，由模型照提示词做）
                     val keep = old.by == "you" && old.diary.isNotBlank()
                     her.items[at] = old.copy(

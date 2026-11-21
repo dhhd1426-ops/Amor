@@ -34,7 +34,7 @@ object MemTree {
         ).filter { it.items.isNotEmpty() }
     }
 
-    fun kindZh(k: String) = when (k) {
+    fun kindZh(k: String) = if (k.startsWith(Mem.TAG)) k.drop(Mem.TAG.length) else when (k) {
         "about" -> "关于你"; "pref" -> "你喜欢的"; "promise" -> "答应你的"; Lessons.KIND -> "我学会的"; "self" -> "关于我"
         "week" -> "这一周"; "month" -> "这个月"; "year" -> "这一年"; else -> "聊过的"
     }

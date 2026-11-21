@@ -29,7 +29,7 @@ data class Mem(val id: String, val text: String, val detail: String, val at: Lon
      */
     val pin: Boolean = false, val done: Boolean = false, val under: String = "", val till: Long = 0) {
     /** 人和规矩：关于你、你喜欢的、我学会的、关于我。不按时间收拢，记忆本里带星号。 */
-    val rule: Boolean get() = kind in RULES
+    val rule: Boolean get() = kind in RULES || kind.startsWith(TAG)
     /** 按周、月、年收拢的那一份。 */
     val span: Boolean get() = kind in SPANS
     /** 目录里的编号：她翻记忆时用。 */
@@ -44,6 +44,8 @@ data class Mem(val id: String, val text: String, val detail: String, val at: Lon
     companion object {
         val RULES = setOf("about", "pref", "self", "lesson")
         val SPANS = setOf("week", "month", "year")
+        /** 你自己起的标签（MemEdit.kt）：kind 存成 "t:名字"，全 App 共用，算人和规矩。 */
+        const val TAG = "t:"
     }
 }
 
@@ -111,6 +113,9 @@ object Memory {
     /** 每段对话回看到第几条（Reflect.later）：存下来，重开 App 不从头再看一遍。 */
     val seen = LinkedHashMap<String, Int>()
 
+    /** 你自己起的记忆标签（「我禁止的」之类），所有助理共用。 */
+    val tags = mutableStateListOf<String>()
+
     fun init(p: Prefs) {
         prefs = p
         // 换主题、换图标时页面会重建、再走一遍这里（进程还在）：读过就不再读。不能清空重读：正在聊的那位会被换成新对象，她手上记的东西会丢
@@ -128,6 +133,7 @@ object Memory {
             }
             activeId = o.optString("active")
             userName = o.optString("user")
+            o.optJSONArray("tags")?.let { t -> for (i in 0 until t.length()) t.optString(i).trim().takeIf { it.isNotEmpty() && it !in tags }?.let { tags += it } }
             o.optJSONObject("seen")?.let { s -> s.keys().forEach { k -> seen[k] = s.optInt(k) } }
         }
         if (all.isEmpty()) migrate(p)
@@ -176,7 +182,7 @@ object Memory {
         }
         while (seen.size > 300) seen.remove(seen.keys.first())
         val s = JSONObject().apply { seen.forEach { (k, v) -> put(k, v) } }
-        prefs?.putString(KEY, JSONObject().put("active", activeId).put("user", userName).put("all", a).put("seen", s).toString())
+        prefs?.putString(KEY, JSONObject().put("active", activeId).put("user", userName).put("all", a).put("seen", s).put("tags", JSONArray(tags.toList())).toString())
     }
 
     fun get(id: String): Persona? = all.firstOrNull { it.id == id }
@@ -235,6 +241,43 @@ object Memory {
     }
 
     fun remove(p: Persona, m: Mem) { p.items.remove(m); save() }
+
+    /** 新起一个标签，返回它的 kind。 */
+    fun addTag(name: String): String {
+        val n = name.trim().take(8)
+        if (n.isNotEmpty() && n !in tags) { tags += n; save() }
+        return Mem.TAG + n
+    }
+
+    /** 删掉一个标签：各位助理里用它的记忆退回「聊过的」。 */
+    fun dropTag(name: String) {
+        tags.remove(name)
+        val k = Mem.TAG + name
+        all.forEach { p -> p.items.indices.forEach { i -> if (p.items[i].kind == k) p.items[i] = p.items[i].copy(kind = "know") } }
+        save()
+    }
+
+    /** 你改了一条：标题、标签，有正文的连正文。改过就算你写的，记忆模型以后不再改它的正文。 */
+    fun edit(p: Persona, id: String, text: String, diary: String, kind: String) {
+        val i = p.items.indexOfFirst { it.id == id }
+        val t = text.trim()
+        if (i < 0 || t.isEmpty()) return
+        val o = p.items[i]
+        p.items[i] = o.copy(text = t, diary = if (o.diary.isBlank()) o.diary else diary.trim(), kind = kind, by = "you")
+        save()
+    }
+
+    /** 你在记忆页加一条，标签随你选（内置的或自己起的）。 */
+    fun note(p: Persona, kind: String, text: String): Mem? {
+        val t = hers(text.trim())
+        if (t.isEmpty()) return null
+        val now = System.currentTimeMillis()
+        val m = Mem("$now-m", t, "", now, "", "", kind, "you")
+        p.items.add(0, m)
+        save()
+        Reflect.place(p, m)
+        return m
+    }
     fun restore(p: Persona, m: Mem, i: Int) { if (m !in p.items) { p.items.add(i.coerceIn(0, p.items.size), m); save() } }
 
     /**

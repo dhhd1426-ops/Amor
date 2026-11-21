@@ -4,6 +4,8 @@ import android.content.Intent
 import android.net.Uri
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
+import androidx.compose.animation.animateContentSize
+import androidx.compose.animation.core.tween
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
@@ -73,6 +75,7 @@ internal fun ColumnScope.AssistantEditScreen(store: AssistantStore, p: Persona, 
                 }
             }
         }
+        MemUndoBar(Modifier.align(Alignment.BottomCenter).padding(bottom = 16.dp))
         KSheetHost(sheet)
     }
 }
@@ -297,16 +300,23 @@ private fun MemoryPage(p: Persona, x: AsstExt, nav: MineNav, sheet: KSheetState)
     KCard {
         if (!p.noteOn) Txt("该助手未启用长期记忆", K.sub, 13.5.sp, Modifier.fillMaxWidth().padding(26.dp), align = androidx.compose.ui.text.style.TextAlign.Center)
         else if (p.items.isEmpty()) Txt("还没有记忆", K.sub, 13.5.sp, Modifier.fillMaxWidth().padding(26.dp), align = androidx.compose.ui.text.style.TextAlign.Center)
-        else p.items.take(6).forEachIndexed { i, m ->
-            Row(Modifier.fillMaxWidth().padding(horizontal = 18.dp, vertical = 12.dp), verticalAlignment = Alignment.Top) {
-                KTag(kindZh(m.kind))
-                Spacer(Modifier.width(10.dp))
-                Txt(m.text.take(60), K.ink, 14.sp, Modifier.weight(1f), maxLines = 2)
+        else androidx.compose.foundation.layout.Column(Modifier.animateContentSize(tween(280, easing = K.std))) {
+            p.items.take(6).forEachIndexed { i, m ->
+                key(m.id) {
+                    Pressable({ MemEdit.open(p, m) }, Modifier.fillMaxWidth(), label = "编辑") { pr ->
+                        Row(Modifier.fillMaxWidth().background(if (pr) K.line else androidx.compose.ui.graphics.Color.Transparent).padding(horizontal = 18.dp, vertical = 12.dp), verticalAlignment = Alignment.Top) {
+                            KTag(kindZh(m.kind))
+                            Spacer(Modifier.width(10.dp))
+                            Txt(m.text.take(60), K.ink, 14.sp, Modifier.weight(1f), maxLines = 2)
+                        }
+                    }
+                    if (i < minOf(5, p.items.lastIndex)) Box(Modifier.padding(horizontal = 18.dp).fillMaxWidth().height(1.dp).background(K.line))
+                }
             }
-            if (i < minOf(5, p.items.lastIndex)) Box(Modifier.padding(horizontal = 18.dp).fillMaxWidth().height(1.dp).background(K.line))
         }
         Row(Modifier.padding(start = 18.dp, end = 18.dp, top = 12.dp, bottom = 16.dp), horizontalArrangement = Arrangement.spacedBy(10.dp)) {
             KButton("全部 ${p.items.size} 件", Modifier.weight(1f)) { nav.screen = "memories" }
+            if (p.noteOn) KButton("+", Modifier.width(48.dp)) { MemEdit.open(p, null) }
         }
     }
 }
