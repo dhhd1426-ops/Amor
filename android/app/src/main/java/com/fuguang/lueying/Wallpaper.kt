@@ -34,6 +34,8 @@ import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.gestures.detectTapGestures
 import androidx.compose.foundation.gestures.detectTransformGestures
+import androidx.compose.foundation.gestures.detectHorizontalDragGestures
+import androidx.compose.foundation.gestures.detectVerticalDragGestures
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.BoxWithConstraints
@@ -588,7 +590,7 @@ private fun TuneSlider(value: Float, from: Float, to: Float, modifier: Modifier,
         detectTapGestures(onPress = { o -> change(at(o.x)); tryAwaitRelease(); done() })
     }.pointerInput(from, to) {
         fun at(x: Float) = (from + (x / size.width.coerceAtLeast(1)).coerceIn(0f, 1f) * (to - from))
-        androidx.compose.foundation.gestures.detectHorizontalDragGestures(onDragEnd = { done() }) { ch, _ -> change(at(ch.position.x)) }
+        detectHorizontalDragGestures(onDragEnd = { done() }) { ch, _ -> change(at(ch.position.x)) }
     }, contentAlignment = Alignment.CenterStart) {
         val f = ((value - from) / (to - from)).coerceIn(0f, 1f)
         Box(Modifier.fillMaxWidth().size(4.dp).background(Color.White.copy(alpha = .16f), RoundedCornerShape(2.dp)))
@@ -613,7 +615,7 @@ private fun WallTune(w: Wall, open: Boolean, modifier: Modifier, onOpen: (Boolea
             detectTapGestures { haptic.performHapticFeedback(HapticFeedbackType.TextHandleMove); onOpen(!open) }
         }.pointerInput(open) {
             var sum = 0f
-            androidx.compose.foundation.gestures.detectVerticalDragGestures(onDragStart = { sum = 0f }, onDragEnd = { if (sum < -30f) onOpen(true) else if (sum > 30f) onOpen(false) }) { _, d -> sum += d }
+            detectVerticalDragGestures(onDragStart = { sum = 0f }, onDragEnd = { if (sum < -30f) onOpen(true) else if (sum > 30f) onOpen(false) }) { _, d -> sum += d }
         }, contentAlignment = Alignment.Center) {
             Box(Modifier.size(44.dp, 5.dp).background(Color.White.copy(alpha = .7f), RoundedCornerShape(3.dp)))
         }
