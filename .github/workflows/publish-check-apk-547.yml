@@ -1,0 +1,30 @@
+name: Publish check APK 547
+
+on:
+  push:
+    branches: [release/check-apk-547]
+
+permissions:
+  actions: read
+  contents: write
+
+jobs:
+  publish:
+    runs-on: ubuntu-latest
+    env:
+      GH_TOKEN: ${{ github.token }}
+      GH_REPO: ${{ github.repository }}
+    steps:
+      - name: Verify and publish the existing APK
+        shell: bash
+        run: |
+          set -euo pipefail
+          gh api "repos/$GH_REPO/actions/artifacts/14705949280/zip" > artifact.zip
+          echo "852fece4cba7b81d0fa25495b9d9021bc522933ac171e993eff1c7b8b4a83732  artifact.zip" | sha256sum -c
+          unzip -p artifact.zip fuguang-lueying-547.apk > fuguang-lueying-547.apk
+          test -s fuguang-lueying-547.apk
+          unzip -tq fuguang-lueying-547.apk
+          gh release create app-build-547 fuguang-lueying-547.apk \
+            --target 5179ec602e0b5778c8decb37478e03f8a69f23a8 --prerelease \
+            --title "浮光掠影 App 第 547 版" \
+            --notes "对话大纲：右上角菜单打开，搜索、点一条滚过去。构建记录：https://github.com/dhhd1426-ops/Amor/actions/runs/44902148718"
