@@ -331,8 +331,8 @@ class ChatState(val history: ConvStore) {
                 val recall = who.memOn
                 val store0 = this@ChatState.history
                 val cur = convId
-                // ＋ › 拆书 勾上的书：查角色卡、人物关系、原文、世界背景的工具
-                val novels = Chaishu.usable(who, cur)
+                // 勾着的小说世界书（子助理读成的）：查原文的工具
+                val novels = Novel.usable(who, cur)
                 Steps.startTurn(cur)
                 val conv0 = store0.get(cur)
                 val folded = Fold.of(conv0)
@@ -358,7 +358,7 @@ class ChatState(val history: ConvStore) {
                     (if (!on("motion")) emptyList() else if (videoRefs.isEmpty()) MotionTools.specs.filter { it.name == MotionTools.RENDER } else MotionTools.specs) +
                     (if (on("pan")) PanTools.specs else emptyList()) + (if (on("clock")) ClockTools.specs else emptyList()) + (if (Whale.active) listOf(WhaleTools.spec) else emptyList()) +
                     WebHand.specs.filter { if (it.name == WebHand.ASK) on("ask") else on("web") } + skills + (if (web) listOf(WebSearch.spec) else emptyList()) +
-                    (if (novels.isNotEmpty()) Chaishu.specs else emptyList()) + (if (recall) listOf(Recall.spec, Recall.openSpec) else emptyList()) + (if (folded != null) listOf(Fold.spec) else emptyList()) + mcp +
+                    (if (novels.isNotEmpty()) listOf(Novel.spec) else emptyList()) + (if (recall) listOf(Recall.spec, Recall.openSpec) else emptyList()) + (if (folded != null) listOf(Fold.spec) else emptyList()) + mcp +
                     LocalTools.specs(ax)
                 val convTitle0 = store0.get(cur)?.title ?: firstSentence(question, 18)
                 // 对方发来的照片，最近的在前：send_image / send_file 里 photo:1 就是最近那张
@@ -385,7 +385,7 @@ class ChatState(val history: ConvStore) {
                     if (native) append("\n").append("你这会儿能直接上网查（用的是你自己带的搜索）：问到天气、新闻、价格、谁现在是什么职位这类会变的事，先查再说；查到的照实说，拿不准的说拿不准。")
                     if (recall) append("\n").append(Recall.system())
                     if (folded != null) append("\n").append(Fold.system())
-                    if (novels.isNotEmpty()) append("\n").append(Chaishu.system(novels))
+                    if (novels.isNotEmpty()) append("\n").append(Novel.system(novels))
                     if (mcp.isNotEmpty()) append("\n").append(Mcp.system())
                 }
                 // 跨聊天回忆：拿他这句话对一下以前的聊天，对上的把小结放到她眼前，时间线上记一步「想起之前聊过的」（第 363 版）
@@ -396,9 +396,7 @@ class ChatState(val history: ConvStore) {
                 // 项目里的对话：自定义指令和文字资料接在最后（每轮一样，能缓存）
                 val sysBase = AssistantExt.fillVars(Prompt.system(who, model0), AssistantExt.placeholders(who, model0, null)) + Projects.system(this@ChatState.project ?: Projects.of(cur)) + (if (Talk.open) Talk.RULE else "") +
                     // ＋ › 指令注入：勾上的卡片追加在系统提示词末尾（Kelivo injectInstructionPrompts）
-                    Injections.prompt(who, cur).let { if (it.isEmpty()) "" else "\n\n$it" } +
-                    // ＋ › 拆书：最近几句提到的人物，角色卡自动带上（照 Kelivo 世界书的关键词触发）
-                    Chaishu.lore(novels, sent0)
+                    Injections.prompt(who, cur).let { if (it.isEmpty()) "" else "\n\n$it" }
                 // 照 Kelivo：发出去的每条先过「仅替换」正则；你的话套聊天内容模板、末尾追加时间；最前面放预设对话；再按世界书放条目
                 val shaped = sent0.map { m ->
                     if (m.role == "user") {
@@ -471,7 +469,7 @@ class ChatState(val history: ConvStore) {
                             else if (n in WebHand.names) WebHand.run(n, a)
                             else if (n in LocalTools.names) LocalTools.run(n, a)
                             else if (Mcp.owns(n)) Mcp.run(n, a)
-                            else if (n in Chaishu.names) Chaishu.run(n, a, novels)
+                            else if (n in Novel.names) Novel.run(a, novels)
                             else ToolOut("没有这个工具：$n", failed = true)
                             made = !out.failed && made
                             // 有了结果（成没成都知道了）：划掉「做到一半」那笔

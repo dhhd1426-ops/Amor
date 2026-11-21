@@ -65,14 +65,14 @@ fun rememberAttachPick(chat: ChatState): (Int) -> Unit {
     val scope = rememberCoroutineScope()
     var shot by remember { mutableStateOf<java.io.File?>(null) }
     val photos = rememberLauncherForActivityResult(ActivityResultContracts.PickMultipleVisualMedia(9)) { us ->
-        scope.launch { us.forEach { u -> Attach.save(ctx, u, asImage = false)?.let { chat.atts.add(it) } } }
+        scope.launch { us.forEach { u -> Attach.save(ctx, u, asImage = false)?.let { chat.atts.add(it); Novel.maybeOffer(it) } } }
     }
     val camera = rememberLauncherForActivityResult(ActivityResultContracts.TakePicture()) { ok ->
         val f = shot; shot = null
         if (f != null) scope.launch { if (ok) Attach.fromCamera(f)?.let { chat.atts.add(it) } else runCatching { f.delete() } }
     }
     val files = rememberLauncherForActivityResult(ActivityResultContracts.OpenMultipleDocuments()) { us ->
-        scope.launch { us.take(9).forEach { u -> Attach.save(ctx, u, asImage = false)?.let { chat.atts.add(it) } } }
+        scope.launch { us.take(9).forEach { u -> Attach.save(ctx, u, asImage = false)?.let { chat.atts.add(it); Novel.maybeOffer(it) } } }
     }
     return { k ->
         runCatching {

@@ -106,7 +106,7 @@ object WorldBooks {
 
     fun get(id: String) = books.firstOrNull { it.id == id }
     fun put(b: WorldBook) { val i = books.indexOfFirst { it.id == b.id }; if (i >= 0) books[i] = b else books += b; save() }
-    fun remove(id: String) { books.removeAll { it.id == id }; collapsed.remove(id); save(); saveFold() }
+    fun remove(id: String) { books.removeAll { it.id == id }; collapsed.remove(id); save(); saveFold(); Novel.forget(id) }
 
     fun isCollapsed(id: String) = collapsed[id] == true
     fun toggleCollapsed(id: String) { collapsed[id] = !isCollapsed(id); saveFold() }

@@ -31,7 +31,7 @@ class MainActivity : ComponentActivity() {
         Yiyan.init(this)
         val prefs = Prefs(this)
         ModelUsage.init(prefs)
-        Chaishu.init(this, prefs)
+        Novel.init(this)
         Works.init(this)
         ArtworkJob.init(this)
         SentFiles.init(this)

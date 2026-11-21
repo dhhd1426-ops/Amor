@@ -106,19 +106,6 @@ private fun RowBody(title: String, sub: String, glyph: @Composable () -> Unit, s
     }
 }
 
-/**
- * 拆书：书架入口。点开盖上拆书页（卡片留在下面，返回时还在）。
- * 副标题说这位助理在用哪本；用不用在聊天 ＋ › 拆书 里勾（照 Kelivo：按助理 / 按对话）。
- */
-@Composable
-internal fun MineChaishuRow(i: Int, t: Float) {
-    val n = Chaishu.books.size
-    MineRow(i, t, "拆书", Chaishu.mineSub(Memory.active), { Chaishu.open = true }, glyph = { Txt("拆", warm, 17.sp, family = Serif) }) {
-        if (n > 0) { Txt("$n 本", Page.muted, 13.sp); Spacer(Modifier.width(4.dp)) }
-        SvgIcon(chaishuChev, Page.muted, 16.dp, stroke = 1.8f)
-    }
-}
-private val chaishuChev = Ic("M9.5 6l6 6-6 6")
 
 /** Telegram：在长条里登录过就显示是谁，能退出；没登录过不起 TDLib（省电）。退出要点两下（第一下变「确认退出」）。 */
 @Composable

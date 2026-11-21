@@ -345,29 +345,7 @@ object ChatTools {
             val picked = (cid?.let { WorldBooks.convPick(it) } ?: AssistantExt.of(p).worldBooks).count { id -> WorldBooks.books.any { it.id == id } }
             ToolRow(TI.book, "世界书", onLong = { done { go?.invoke("worldbook") } }, onClick = { sheet.close(); scope.launch { delay(230); ChatSheets.worldBooks(cid); open = true } }) { Count(picked, WorldBooks.books.size) }
         }
-        // 拆书（照世界书那一行）：点开勾这位助理 / 这个对话用哪几本；长按打开拆书页；还没书时直接去导入
-        if (Chaishu.books.isNotEmpty())
-            ToolRow(TI.novel, "拆书", onLong = { done { Chaishu.open = true } }, onClick = { next { ChaishuSheet(c) } }) { Count(Chaishu.count(p, cid), Chaishu.books.size) }
-        else ToolRow(TI.novel, "拆书", onClick = { done { Chaishu.open = true } })
         ToolRow(TI.flow, "上下文管理", onClick = { next { ContextSheet(c) } })
-    }
-
-    // 拆书：每本一个开关（Kelivo world_book_sheet 的样子）；助理开着「独立对话指令注入」时只管这个对话
-    @Composable
-    private fun ChaishuSheet(c: Ctx) {
-        val p = Memory.active
-        val cid = c.chat.convId
-        val picked = Chaishu.picked(p, cid).toSet()
-        KSheetTitle("拆书 (${picked.size}/${Chaishu.books.size})") { if (Chaishu.scoped(p, cid)) KTag("仅当前对话", true) }
-        KCard {
-            Chaishu.books.forEachIndexed { i, b ->
-                val sub = listOfNotNull("${b.chapters} ${b.unit}", if (b.people > 0) "${b.people} 人" else null, if (b.done) null else "没分析完").joinToString(" · ")
-                KRow(b.title, sub = sub, divider = i > 0, onClick = { Chaishu.toggle(p, cid, b.id) }) { KSwitch(b.id in picked, b.title) { Chaishu.toggle(p, cid, b.id) } }
-            }
-        }
-        Txt("勾上的书，助理写作时能查人物、对白和原文；对话里提到书中人名，角色卡自动带上。", K.sub, 12.5.sp, Modifier.padding(horizontal = 6.dp, vertical = 2.dp))
-        Spacer(Modifier.height(14.dp))
-        KButton("打开拆书") { done { Chaishu.open = true } }
     }
 
     // 此对话的技能（conversation_skills_sheet）

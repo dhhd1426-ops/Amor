@@ -188,8 +188,6 @@ private fun MineCardList(store: AssistantStore, t: Float, onGo: (String) -> Unit
     Spacer(Modifier.height(6.dp))
     MineUsageRow(store, t) { onGo("usage") }
     Txt("连接器", Page.muted, 11.sp, Modifier.padding(start = 8.dp, top = 14.dp, bottom = 8.dp).mineRise(2, t), spacing = ls(2.75f, 11f))
-    Column(Modifier.spot("chaishu")) { MineChaishuRow(3, t) }
-    Spacer(Modifier.height(6.dp))
     Column(Modifier.spot("tg")) { MineTgRow(3, t) }
     Spacer(Modifier.height(6.dp))
     val n = Mcp.servers.size
