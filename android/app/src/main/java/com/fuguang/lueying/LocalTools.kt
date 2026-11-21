@@ -51,6 +51,7 @@ object LocalTools {
         Group("clock", "clock", "闹钟和日历", "定闹钟，查、加、改、删日程。"),
         Group("pact", "pact", "约定", "按约定的时间主动来找你，比如早报。"),
         Group("material", "book", "素材", "翻看你存下的素材。"),
+        Group("worldbook", "book", "写世界书", "把人物、场景这些设定直接写进世界书，写完勾到这个对话。"),
         Group("video", "film", "视频解析", "看懂你发来的视频链接。"),
         Group("motion", "film", "动效检查", "做动画作品时逐帧检查。"),
         Group("pan", "cloud", "网盘", "读写网盘里的文件。"),

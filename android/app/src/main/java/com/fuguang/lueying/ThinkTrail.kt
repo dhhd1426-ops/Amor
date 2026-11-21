@@ -96,7 +96,7 @@ object Trail {
         in ClockTools.names -> ClockTools.liveTitle(n)
         in WebHand.names -> WebHand.liveTitle(n)
         SentFiles.TOOL -> "正在打包文件"; SentPics.TOOL -> "正在拿图"; Pacts.SET -> "正在记约定"; Pacts.DROP -> "正在取消约定"; Works.MAKE -> "正在动手做"; WorkJobs.START -> "正在交代"; WorkJobs.STOP -> "正在停下"; WhaleTools.ACT -> "正在动一下"; WorkJobs.RESUME -> "正在接着做"; "get_work_status" -> "正在查做到哪"; Works.EDIT -> "正在改作品"; Works.READ -> "正在看原稿"; Steps.TOOL -> "正在理要做的事"
-        Novel.FIND -> "正在查原文"
+        Novel.FIND -> "正在查原文"; WbTools.WRITE -> "正在写世界书"
         else -> if (Mcp.owns(n)) Mcp.note(n).trimEnd('…') else "正在处理"
     }
 
@@ -111,6 +111,7 @@ object Trail {
         Works.EDIT -> "改好了「${workTitle(a)}」"
         Pacts.SET -> (if (a.optString("id").isNotBlank()) "改了约定" else "记下了一条约定") + "「${a.optString("title").trim().take(12)}」"
         Pacts.DROP -> "取消了一条约定"
+        WbTools.WRITE -> "写进世界书《${a.optString("book").trim().trim('《', '》').take(16)}》· ${a.optJSONArray("entries")?.length() ?: 0} 条"
         SentFiles.TOOL -> a.optJSONArray("files").let { arr -> val n = arr?.length() ?: 0; val first = arr?.optJSONObject(0)?.optString("name")?.trim().orEmpty().take(16); if (n > 1) "发了「$first」等 $n 份文件" else "发了文件「$first」" }
         SentPics.TOOL -> "发了 ${a.optJSONArray("images")?.length() ?: 1} 张图"
         WorkJobs.START -> (if (a.optString("id").isNotBlank()) "交代了大改" else "交代了作品") + "「${a.optString("title").trim().ifEmpty { "未命名" }.take(20)}」，后台在写"
@@ -130,7 +131,7 @@ object Trail {
     }
 
     fun failTitle(n: String, a: JSONObject): String =
-        if (n in MotionTools.names) "画面检查未完成" else if (n == Steps.TOOL) "要做的事没记上" else if (n == Works.EDIT) "「${workTitle(a)}」没改成" else "作品「${a.optString("title").trim().ifEmpty { "未命名" }.take(20)}」没做成"
+        if (n in MotionTools.names) "画面检查未完成" else if (n == WbTools.WRITE) "世界书没写成" else if (n == Steps.TOOL) "要做的事没记上" else if (n == Works.EDIT) "「${workTitle(a)}」没改成" else "作品「${a.optString("title").trim().ifEmpty { "未命名" }.take(20)}」没做成"
 
     private fun workTitle(a: JSONObject) = a.optString("title").trim().ifEmpty { Works.get(a.optString("id").trim())?.title ?: "作品" }.take(20)
 
@@ -159,7 +160,7 @@ object Trail {
         Lessons.STEP -> bulb
         Memory.REMEMBER, Memory.READ -> bookmark; Memory.FORGET -> eraser; Recall.TOOL, Recall.AUTO -> bubble; Recall.OPEN, Fold.LOOK -> folder; WebSearch.TOOL, Materials.OPEN, QwenSearch.STEP -> globe; Materials.LOOK, SentPics.TOOL -> picture; VideoParse.TOOL -> Icons.play; VideoParse.SAVE, PanTools.GET -> saveIcon; PanTools.OPEN -> globe
         Skills.OPEN, Skills.FIND, Skills.LEARN -> skillIcon
-        Works.MAKE, Works.EDIT -> shapes; Works.READ, SentFiles.TOOL -> page; Pacts.SET, Pacts.DROP -> alarmIcon; Steps.TOOL -> todo
+        Works.MAKE, Works.EDIT -> shapes; Works.READ, SentFiles.TOOL -> page; Pacts.SET, Pacts.DROP -> alarmIcon; WbTools.WRITE -> KI.worldBook; Steps.TOOL -> todo
         in Novel.names -> page
         ClockTools.ALARM, ClockTools.NEXT, ClockTools.OFF -> alarmIcon
         in ClockTools.names -> calIcon

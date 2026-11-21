@@ -108,6 +108,10 @@ private fun WorkSlot(id: String?, draft: WorkDraft?, onWork: (String) -> Unit, c
         Box(Modifier.graphicsLayer { alpha = rise.value; translationY = (1f - rise.value) * 8.dp.toPx() }) { PactCard(id) }
         return
     }
+    if (id != null && id.startsWith(WbTools.PREFIX)) {
+        Box(Modifier.graphicsLayer { alpha = rise.value; translationY = (1f - rise.value) * 8.dp.toPx() }) { WbCard(id) }
+        return
+    }
     if (id != null && SentFiles.isRef(id)) {
         Box(Modifier.graphicsLayer { alpha = rise.value; translationY = (1f - rise.value) * 8.dp.toPx() }) { SentFileCard(id) }
         return

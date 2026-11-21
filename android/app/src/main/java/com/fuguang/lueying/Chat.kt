@@ -354,7 +354,7 @@ class ChatState(val history: ConvStore) {
                 val specs = listOf(Steps.spec) + (if (who.noteOn) Memory.toolSpecs else emptyList()) +
                     (if (on("works")) Works.specs.filter { it.name != Works.MAKE } + WorkJobs.spec + WorkJobs.statusSpec + WorkJobs.stopSpec + WorkJobs.resumeSpec else emptyList()) +
                     (if (on("file")) listOf(SentFiles.spec) else emptyList()) + (if (on("pic")) listOf(SentPics.spec) else emptyList()) +
-                    (if (on("pact")) Pacts.specs else emptyList()) + (if (on("material")) Materials.specs else emptyList()) + (if (on("video")) VideoParse.specs else emptyList()) +
+                    (if (on("pact")) Pacts.specs else emptyList()) + (if (on("worldbook")) listOf(WbTools.spec) else emptyList()) + (if (on("material")) Materials.specs else emptyList()) + (if (on("video")) VideoParse.specs else emptyList()) +
                     (if (!on("motion")) emptyList() else if (videoRefs.isEmpty()) MotionTools.specs.filter { it.name == MotionTools.RENDER } else MotionTools.specs) +
                     (if (on("pan")) PanTools.specs else emptyList()) + (if (on("clock")) ClockTools.specs else emptyList()) + (if (Whale.active) listOf(WhaleTools.spec) else emptyList()) +
                     WebHand.specs.filter { if (it.name == WebHand.ASK) on("ask") else on("web") } + skills + (if (web) listOf(WebSearch.spec) else emptyList()) +
@@ -453,6 +453,7 @@ class ChatState(val history: ConvStore) {
                             else if (n == Materials.OPEN || n == Materials.LOOK) Materials.run(n, a, Attach.vision(p.id, model0))
                             else if (n == Skills.OPEN || n == Skills.FIND || n == Skills.LEARN) Skills.run(n, a)
                             else if (n == Pacts.SET || n == Pacts.DROP) Pacts.run(n, a, who) { ref -> pendingWorks.add(ref); pendingWorkAt.add(partial.length) }
+                            else if (n == WbTools.WRITE) WbTools.run(a, who, cur) { ref -> pendingWorks.add(ref); pendingWorkAt.add(partial.length) }
                             else if (n == SentFiles.TOOL) SentFiles.run(a, photos()) { ref -> pendingWorks.add(ref); pendingWorkAt.add(partial.length) }
                             else if (n == SentPics.TOOL) SentPics.run(a, photos()) { r -> if (r !in pendingImgs) pendingImgs.add(r) }
                             else if (n == "get_work_status") WorkJobs.status(a, cur, history.flatMap { it.works })
@@ -1048,6 +1049,7 @@ private fun LiveTurn(chat: ChatState, store: AssistantStore, compact: Boolean, o
         if (chat.partial.isEmpty()) ThinkingMotion("", Modifier.padding(start = 2.dp, top = 6.dp))   // 没开深度思考也没用工具：只有三点
     } else ThinkRow(chat.thinkText, steps, trailLive, summary = ThinkTidy.summaryStyle(chat.turnPid.ifEmpty { store.activeProvider }), fetch = true) { onThink(-1) }
     SkillAskHost(compact)
+    WbAskHost(compact)
     ReplyFlow(chat.partial.take(ceil(chat.shown).toInt()), works, workAt, chat.workDraft, chat.shown < chat.partial.length + 1, onWork, chat, store) { t, f -> Reply(t, compact, f) }
     NoteImageRow(imgs, onImage)
     ClipCards(clips)

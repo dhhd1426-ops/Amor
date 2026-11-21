@@ -181,6 +181,16 @@ private fun ColumnScope.BookList(nav: MineNav, sheet: KSheetState) {
                 WorldBooks.moveBook(from.index, to.index)
                 haptic.performHapticFeedback(HapticFeedbackType.SegmentFrequentTick)
             }
+            // 从聊天里的世界书卡点进来：展开、滚到这本，亮的条目 1.6 秒后淡掉
+            LaunchedEffect(WorldBooks.focus) {
+                val id = WorldBooks.focus ?: return@LaunchedEffect
+                WorldBooks.expand(id)
+                val i = WorldBooks.books.indexOfFirst { it.id == id }
+                if (i >= 0) listState.animateScrollToItem(i)
+                WorldBooks.focus = null
+                delay(1600)
+                WorldBooks.lit = emptySet()
+            }
             LazyColumn(Modifier.fillMaxSize(), state = listState, contentPadding = PaddingValues(bottom = 100.dp), verticalArrangement = Arrangement.spacedBy(14.dp)) {
                 items(WorldBooks.books, key = { it.id }) { b ->
                     ReorderableItem(reorder, key = b.id) { dragging ->
@@ -324,7 +334,9 @@ private fun EntryRow(
     val a = if (e.enabled) 1f else .55f
     val pc = posColor(e.position)
     fun tick() { val s = sel[b.id] ?: return; sel[b.id] = if (e.id in s) s - e.id else s + e.id }
-    Column(Modifier.fillMaxWidth().clip(RoundedCornerShape(12.dp)).background(if (dragging) K.card2 else Color.Transparent)) {
+    val on = e.id in WorldBooks.lit
+    val glow by androidx.compose.animation.animateColorAsState(if (on) K.acc.copy(alpha = .16f) else Color.Transparent, tween(if (on) 200 else 1200, easing = K.std), label = "wbLit")
+    Column(Modifier.fillMaxWidth().clip(RoundedCornerShape(12.dp)).background(if (dragging) K.card2 else glow)) {
         Row(
             Modifier.fillMaxWidth().heightIn(min = 52.dp)
                 .combinedClickable(

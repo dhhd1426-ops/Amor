@@ -1,6 +1,8 @@
 package com.fuguang.lueying
 
+import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateListOf
+import androidx.compose.runtime.setValue
 import org.json.JSONArray
 import org.json.JSONObject
 
@@ -88,6 +90,9 @@ object WorldBooks {
     private val conv = HashMap<String, List<String>>()
     /** 页面上哪几本收起来了（照 Kelivo provider._collapsedBooks，默认展开，记住）。 */
     val collapsed = androidx.compose.runtime.mutableStateMapOf<String, Boolean>()
+    /** 从聊天里的世界书卡点进来：滚到这本（书 id），刚写的条目（lit）亮一下再淡掉。 */
+    var focus by androidx.compose.runtime.mutableStateOf<String?>(null)
+    var lit by androidx.compose.runtime.mutableStateOf<Set<String>>(emptySet())
     /** 粘滞 / 冷却的计时：对话 id → {messageCount, historyHash, effects}。 */
     private val state = HashMap<String, JSONObject>()
 
