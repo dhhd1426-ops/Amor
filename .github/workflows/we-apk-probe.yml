@@ -1,0 +1,79 @@
+name: WE APK probe
+
+on:
+  push:
+    branches: [probe/we-apk]
+
+permissions:
+  contents: write
+
+jobs:
+  probe:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Download official APK
+        shell: bash
+        run: |
+          set -x
+          mkdir -p r
+          curl -sSL -A "Mozilla/5.0" https://wallpaperengine.io/android -o page.html || true
+          grep -oE 'https?://[^"'"'"' <>]+\.apk' page.html | sort -u > r/links.txt || true
+          grep -oE 'href="[^"]*(apk|android)[^"]*"' page.html | sort -u >> r/links.txt || true
+          cat r/links.txt
+          URL=$(grep -oE 'https?://[^"'"'"' <>]+\.apk' page.html | head -1)
+          if [ -z "$URL" ]; then URL="https://wallpaperengine.io/android/apk/wallpaper-engine.apk"; fi
+          echo "$URL" > r/url.txt
+          curl -sSL -A "Mozilla/5.0" "$URL" -o we.apk
+          ls -la we.apk; file we.apk | tee r/file.txt
+          sha256sum we.apk | tee r/sha256.txt
+      - name: Analyse
+        shell: bash
+        run: |
+          python3 - <<'PY'
+          import zipfile, struct, re, os, io, collections
+          z = zipfile.ZipFile('we.apk')
+          names = z.namelist()
+          out = open('r/listing.txt', 'w')
+          for i in z.infolist(): out.write(f"{i.file_size:>10} {i.filename}\n")
+          out.close()
+          rep = open('r/report.md', 'w')
+          ext = collections.Counter(os.path.splitext(n)[1].lower() for n in names)
+          rep.write("# 文件类型\n" + "\n".join(f"- {k or '(无)'}: {v}" for k, v in ext.most_common(40)) + "\n\n")
+          rep.write("# assets 顶层\n" + "\n".join(sorted({'/'.join(n.split('/')[:3]) for n in names if n.startswith('assets/')})[:200]) + "\n\n")
+          shader = [n for n in names if re.search(r'\.(frag|vert|h|glsl|hlsl|spv|fx)$', n, re.I) or 'shader' in n.lower()]
+          rep.write(f"# 着色器类文件（{len(shader)} 个）\n" + "\n".join(shader[:400]) + "\n\n")
+          # 文本还是二进制：只记是否像源码、开头的关键字，不写内容
+          rep.write("# 着色器是否是源码\n")
+          for n in shader[:400]:
+              b = z.read(n)
+              txt = all(32 <= c < 127 or c in (9, 10, 13) for c in b[:400]) if b else False
+              inc = sorted(set(re.findall(rb'#include\s+"([^"]+)"', b)))
+              rep.write(f"- {n}  {len(b)}B  {'文本' if txt else '二进制'}  include={[i.decode('utf8','replace') for i in inc]}\n")
+          # 包里套的 pkg
+          rep.write("\n# 套着的 PKGV/PKGM 包\n")
+          for n in names:
+              b = z.read(n)
+              if len(b) > 12 and b[4:8] in (b'PKGV', b'PKGM'):
+                  l = struct.unpack_from('<I', b, 0)[0]; o = 4 + l; cnt = struct.unpack_from('<I', b, o)[0]; o += 4
+                  ents = []
+                  for _ in range(min(cnt, 5000)):
+                      L = struct.unpack_from('<I', b, o)[0]; o += 4; nm = b[o:o+L].decode('utf8', 'replace'); o += L + 8; ents.append(nm)
+                  rep.write(f"## {n}（{b[4:12].decode()}，{cnt} 个）\n" + "\n".join(ents) + "\n")
+          # 原生库里认得出的着色器相关字符串（只记名字）
+          rep.write("\n# 原生库\n")
+          for n in names:
+              if n.endswith('.so'):
+                  b = z.read(n)
+                  hs = sorted(set(m.decode() for m in re.findall(rb'[A-Za-z0-9_/]+\.(?:h|frag|vert|glsl)\b', b)))[:300]
+                  kw = {k: (k.encode() in b) for k in ['texSample2D', 'squareToQuad', 'ApplyBlending', 'g_ModelViewProjectionMatrix', '#version 300 es', 'genericimage', 'genericparticle', 'puppet', 'PKGM', 'TEXV']}
+                  rep.write(f"## {n} {len(b)}B\n关键字：{kw}\n文件名：{hs}\n\n")
+          rep.close()
+          PY
+          head -c 3000 r/report.md
+      - name: Commit report
+        shell: bash
+        run: |
+          cd r
+          git init -q && git checkout -q -b probe/we-apk-report
+          git -c user.name=probe -c user.email=probe@local add . && git -c user.name=probe -c user.email=probe@local commit -qm "WE APK 分析结果"
+          git push -f "https://x-access-token:${{ github.token }}@github.com/${{ github.repository }}" probe/we-apk-report
