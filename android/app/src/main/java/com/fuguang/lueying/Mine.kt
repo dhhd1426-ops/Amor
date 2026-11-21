@@ -105,7 +105,22 @@ class MineNav {
     /** 从周月年那份信纸点进下面一份：返回时回到那份信纸。 */
     var letterFrom by mutableStateOf("")
     fun open(id: String, t: Int) { persona = id; tab = t; screen = "persona" }
+    /**
+     * 从聊天里直接打开的那一页（世界书卡、长按世界书 / 技能、「这次用了」、去设置模型、助理列表）。
+     * 在这一页按返回就回聊天，不退到「我的」；从「我的」一层层点进来的不受影响。
+     */
+    var entry by mutableStateOf("")
+    /** 从外面（聊天）直接打开某一页。 */
+    fun go(s: String) { screen = s; entry = s; MineCard.open = true }
+    /** 页面左上角返回：在入口那页就回聊天，否则回到 [parent]。 */
+    fun up(parent: String) { if (!leave()) screen = parent }
+    private fun leave(): Boolean {
+        if (entry.isEmpty() || screen != entry) return false
+        entry = ""; MineCard.open = false
+        return true
+    }
     fun back(): Boolean {
+        if (leave()) return true
         screen = when {
             screen.startsWith("provider/") -> "providers"
             screen.startsWith("search/") -> "search"

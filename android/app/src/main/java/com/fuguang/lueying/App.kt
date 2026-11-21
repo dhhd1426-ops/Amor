@@ -207,9 +207,9 @@ fun FuguangApp(prefs: Prefs, fullscreen: Boolean, setFullscreen: (Boolean) -> Un
                         hour = java.util.Calendar.getInstance().apply { time = now }.get(java.util.Calendar.HOUR_OF_DAY),
                         store = assistant,
                         chat = chatState,
-                        onMine = { MineCard.open = true },
-                        onSetup = { mineNav.screen = "provider/${assistant.activeProvider}"; MineCard.open = true },
-                        onAssistants = { mineNav.screen = "assistant"; MineCard.open = true },
+                        onMine = { mineNav.entry = ""; MineCard.open = true },
+                        onSetup = { mineNav.go("provider/${assistant.activeProvider}") },
+                        onAssistants = { mineNav.go("assistant") },
                     )
                 }
             }
@@ -240,8 +240,8 @@ fun FuguangApp(prefs: Prefs, fullscreen: Boolean, setFullscreen: (Boolean) -> Un
         }
 
         // 「这次用了」里点一样本事：去「我的 → 功能 → 技能」看它
-        Skills.show = { id -> mineNav.screen = "skills/$id"; MineCard.open = true }
-        ChatTools.go = { s -> mineNav.screen = s; MineCard.open = true }
+        Skills.show = { id -> mineNav.go("skills/$id") }
+        ChatTools.go = { s -> mineNav.go(s) }
         // 内置浏览器、下载页：盖在最上面
         // 她替你点网页：在内置浏览器之下，聊天页之上
         WebHandLayer()

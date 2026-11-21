@@ -104,7 +104,7 @@ fun MineCardLayer(store: AssistantStore, nav: MineNav) {
                 else -> nav.screen != "mine" && nav.back()
             }
         },
-        onClosed = { nav.screen = "mine"; nav.persona = "" },
+        onClosed = { nav.screen = "mine"; nav.persona = ""; nav.entry = "" },
         above = { MemoryCardHost(); AvatarCropHost(); IconCropHost() },
     ) { screen, rise ->
         when (screen) {
@@ -122,13 +122,13 @@ fun MineCardLayer(store: AssistantStore, nav: MineNav) {
             "theme" -> ThemePage { nav.screen = "mine" }
             "voice" -> SpeechPage({ nav.screen = "mine" }) { nav.screen = "voice/api" }
             "voice/api" -> SpeechApiPage { nav.screen = "voice" }
-            "features" -> FeaturesPage({ nav.screen = "mine" }, { nav.screen = "search" }, { nav.screen = "skills" })
-            "skills" -> SkillsPage({ nav.screen = "features" }) { nav.screen = "skills/$it" }
-            "search" -> SearchPage({ nav.screen = "features" }) { nav.screen = "search/$it" }
+            "features" -> FeaturesPage({ nav.up("mine") }, { nav.screen = "search" }, { nav.screen = "skills" })
+            "skills" -> SkillsPage({ nav.up("features") }) { nav.screen = "skills/$it" }
+            "search" -> SearchPage({ nav.up("features") }) { nav.screen = "search/$it" }
             "worldbook" -> WorldBookPage(screen, nav)
             else -> if (screen.startsWith("worldbook/")) WorldBookPage(screen, nav)
-            else if (screen.startsWith("skills/")) SkillDetailPage(screen.removePrefix("skills/")) { nav.screen = "skills" }
-            else if (screen.startsWith("search/")) SearchSourcePage(screen.removePrefix("search/")) { nav.screen = "search" }
+            else if (screen.startsWith("skills/")) SkillDetailPage(screen.removePrefix("skills/")) { nav.up("skills") }
+            else if (screen.startsWith("search/")) SearchSourcePage(screen.removePrefix("search/")) { nav.up("search") }
             else Column(Modifier.widthIn(max = 720.dp).fillMaxSize()) {
                 CompositionLocalProvider(LocalTitleEnd provides 36.dp) { MineSub(store, screen, true, 0.dp, nav) }
             }

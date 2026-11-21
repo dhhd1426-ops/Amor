@@ -162,7 +162,7 @@ private fun ColumnScope.BookList(nav: MineNav, sheet: KSheetState) {
     // 多选中按返回：先退出多选（Kelivo SelectionBackScope）
     BackHandler(enabled = sel.isNotEmpty()) { sel.clear() }
 
-    Title("世界书", false, onBack = { nav.screen = "mine" }) {
+    Title("世界书", false, onBack = { nav.up("mine") }) {
         Row {
             HeadIcon(WbI.cloud, "导入", size = 22) { importer.launch(arrayOf("application/json", "text/plain", "*/*")) }
             HeadIcon(WbI.plus, "添加世界书", size = 22) { sheet.open { BookSheet(null, sheet) } }
