@@ -1,0 +1,30 @@
+name: Publish check APK 545
+
+on:
+  push:
+    branches: [release/check-apk-545]
+
+permissions:
+  actions: read
+  contents: write
+
+jobs:
+  publish:
+    runs-on: ubuntu-latest
+    env:
+      GH_TOKEN: ${{ github.token }}
+      GH_REPO: ${{ github.repository }}
+    steps:
+      - name: Verify and publish the existing APK
+        shell: bash
+        run: |
+          set -euo pipefail
+          gh api "repos/$GH_REPO/actions/artifacts/14702002736/zip" > artifact.zip
+          echo "1d8c2c9e2d974697b487c3c40b6aacac687ca009efe76af8ee8c3a76c0f03f34  artifact.zip" | sha256sum -c
+          unzip -p artifact.zip fuguang-lueying-545.apk > fuguang-lueying-545.apk
+          test -s fuguang-lueying-545.apk
+          unzip -tq fuguang-lueying-545.apk
+          gh release create app-build-545 fuguang-lueying-545.apk \
+            --target 81538d68d4e3682d1f7076baabaec1d9c2d3dfdc --prerelease \
+            --title "浮光掠影 App 第 545 版" \
+            --notes "她能直接写世界书，聊天里出世界书卡，改已有条目先问。构建记录：https://github.com/dhhd1426-ops/Amor/actions/runs/44891012452"
