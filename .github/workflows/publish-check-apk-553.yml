@@ -1,0 +1,30 @@
+name: Publish check APK 553
+
+on:
+  push:
+    branches: [release/check-apk-553]
+
+permissions:
+  actions: read
+  contents: write
+
+jobs:
+  publish:
+    runs-on: ubuntu-latest
+    env:
+      GH_TOKEN: ${{ github.token }}
+      GH_REPO: ${{ github.repository }}
+    steps:
+      - name: Verify and publish the existing APK
+        shell: bash
+        run: |
+          set -euo pipefail
+          gh api "repos/$GH_REPO/actions/artifacts/14717635589/zip" > artifact.zip
+          echo "0ef530726d23cb9581c6d0fdfafb618e74a2b85b863785af3e5fb71cb9280775  artifact.zip" | sha256sum -c
+          unzip -p artifact.zip fuguang-lueying-553.apk > fuguang-lueying-553.apk
+          test -s fuguang-lueying-553.apk
+          unzip -tq fuguang-lueying-553.apk
+          gh release create app-build-553 fuguang-lueying-553.apk \
+            --target ee885b6de0a28becf0a916db24da63dac77cb40f --prerelease \
+            --title "浮光掠影 App 第 553 版" \
+            --notes "场景壁纸改走官方引擎。构建记录：https://github.com/dhhd1426-ops/Amor/actions/runs/44929324971"
