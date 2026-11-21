@@ -567,6 +567,16 @@ internal fun WallpaperPage(onBack: () -> Unit) {
                         AppSheet.open {
                             KSheetTitle(w.name)
                             DiagBox(w.diag.ifEmpty { Walls.diagHead(w) + "\n" + if (w.kind == "scene") "还没画过：先点它换上" else "图片、视频壁纸不用渲染器" })
+                            if (w.kind == "scene") KOption("官方引擎", false) {
+                                AppSheet.close()
+                                scope.launch {
+                                    // 上次探测时 App 崩了：先给看停在哪一步，下次再点才重新探
+                                    val left = WeOfficial.leftover(ctx)
+                                    val text = if (left != null) { java.io.File(ctx.filesDir, "we-official.txt").delete(); "上次探测时 App 退出了，停在：\n$left" }
+                                        else withContext(Dispatchers.IO) { runCatching { WeOfficial.probe(ctx) }.getOrElse { it.stackTraceToString() } }
+                                    AppSheet.open { KSheetTitle("官方引擎"); DiagBox(text) }
+                                }
+                            }
                             KOption("删除", false) { AppSheet.close(); Walls.remove(w) }
                         }
                     })
