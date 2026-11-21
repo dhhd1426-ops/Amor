@@ -17,6 +17,6 @@ for f in /home/claude/weapk/x/assets/wallpapers/*.mpkg 用户发来的.mpkg; do 
 BENCH=$B python3 $T/run.py            # 全部；或 run.py 名字1 名字2
 ```
 
-`mkpack.py` 和 `tex.py` 要放在同一个目录。Playwright 已装；浏览器用 swiftshader，支持 ETC2。
+`mkpack.py` 和 `tex.py` 要放在同一个目录。素材以外的引擎行为怎么查（原生库逆向）见 [`逆向.md`](逆向.md)。Playwright 已装；浏览器用 swiftshader，支持 ETC2。
 
 第 549 版时的结果：10 张全部加载、着色器全部编译；deep_space 相似度 0.96。画不全的原因只剩粒子（5 张）、3D 模型（4 张）、属性脚本（2 张）。
