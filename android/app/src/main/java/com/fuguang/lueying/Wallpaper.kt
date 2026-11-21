@@ -351,7 +351,7 @@ private class WeHost(ctx: Context, private val wall: Wall, private val onReady: 
     private val main = Handler(Looper.getMainLooper())
     private val scripts = WeScripts(app)
     private val viz = WeViz()
-    private var thread: WeThread? = null
+    private var thread: WeRunner? = null
     private var audio = false
     private var closed = false
     private val view = { wall.view }
@@ -368,10 +368,33 @@ private class WeHost(ctx: Context, private val wall: Wall, private val onReady: 
 
     override fun onSurfaceTextureAvailable(st: SurfaceTexture, w: Int, h: Int) {
         stop()
+        // 第 553 版起先走官方引擎（借手机上官方 App 的 libscenejni.so），画面和官方一模一样；没装、起不来或崩过才用自带渲染器
+        if (WeOfficial.usable(app, wall.id)) startOfficial(st, w, h) else startOwn(st, w, h, WeOfficial.lastCrash.takeIf { it.isNotEmpty() }?.let { "官方引擎上次让 App 退出了，停在：$it\n长按这张 →「官方引擎」可以再试\n" } ?: "")
+    }
+
+    private fun startOfficial(st: SurfaceTexture, w: Int, h: Int) {
+        val t = WeOfficialThread(app, st, w, h, wall.id, wall.path, onReady = { aspect, info ->
+            main.post {
+                if (closed) return@post
+                wall.aspect = aspect
+                wall.diag = Walls.diagHead(wall) + info + "\n\n全部交给官方引擎画"
+                onReady(true)
+            }
+        }, onFail = { err ->
+            main.post {
+                if (closed || thread == null) return@post
+                thread = null
+                startOwn(st, w, h, "官方引擎没起来，改用自带渲染器：\n$err\n\n")
+            }
+        })
+        t.playing = playing; thread = t; t.start()
+    }
+
+    private fun startOwn(st: SurfaceTexture, w: Int, h: Int, head: String) {
         val engine = WeEngine.apk(app)
         val engInfo = if (engine != null) "官方素材：已读到（Wallpaper Engine ${WeEngine.version(app) ?: ""}）" else "官方素材：没装官方 Wallpaper Engine，用自带替身"
         val t = WeThread(st, w, h, wall.path, engine, scripts, view, bands, speed) { ok, err, skipped, au, aspect, info0 ->
-            val info = info0 + "\n" + engInfo
+            val info = head + "渲染：自带渲染器\n" + info0 + "\n" + engInfo
             main.post {
                 if (closed) return@post
                 wall.aspect = aspect
@@ -391,7 +414,7 @@ private class WeHost(ctx: Context, private val wall: Wall, private val onReady: 
     override fun onSurfaceTextureUpdated(st: SurfaceTexture) {}
 
     /** 收尾限时 1.5 秒，不让界面线程干等 */
-    private fun stop() { thread?.let { it.finish(); runCatching { it.join(1500) } }; thread = null }
+    private fun stop() { thread?.let { it.finish(); runCatching { (it as Thread).join(1500) } }; thread = null }
     fun close() { closed = true; stop(); scripts.close(); viz.stop(); Walls.micOk = null }
 }
 
@@ -569,6 +592,7 @@ internal fun WallpaperPage(onBack: () -> Unit) {
                             DiagBox(w.diag.ifEmpty { Walls.diagHead(w) + "\n" + if (w.kind == "scene") "还没画过：先点它换上" else "图片、视频壁纸不用渲染器" })
                             if (w.kind == "scene") KOption("官方引擎", false) {
                                 AppSheet.close()
+                                WeOfficial.retry(ctx, w.id)
                                 scope.launch {
                                     // 上次探测时 App 崩了：先给看停在哪一步，下次再点才重新探
                                     val left = WeOfficial.leftover(ctx)

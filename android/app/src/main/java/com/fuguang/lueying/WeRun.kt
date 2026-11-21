@@ -31,9 +31,17 @@ import kotlin.math.pow
  * 用 TextureView 不用 SurfaceView：聊天时背景要跟着虚化、磨砂卡片要透出它，这两样都只对画进界面层的内容起作用。
  * 云朵天气的教训：时钟每帧最多走 0.25 秒（切后台回来不快进）；收尾限时，不让界面线程干等。
  */
+/** 渲染线程共用的几样：表面大小、暂停、收尾。自带渲染器 [WeThread] 和官方引擎 [WeOfficialThread] 都实现它。 */
+internal interface WeRunner {
+    var w: Int
+    var h: Int
+    var playing: Boolean
+    fun finish()
+}
+
 internal class WeThread(
     private val surface: SurfaceTexture,
-    @Volatile var w: Int, @Volatile var h: Int,
+    @Volatile override var w: Int, @Volatile override var h: Int,
     private val file: File,
     /** 官方 App 的安装包（读引擎素材）；没装是 null */
     private val engine: File?,
@@ -44,11 +52,11 @@ internal class WeThread(
     private val speed: () -> Float,
     /** GL 线程上回调：ok、出错的话是原因、跳过的图层、场景要不要听声音、场景宽高比、诊断信息（显卡、图层数、包版本） */
     private val onState: (ok: Boolean, error: String, skipped: List<String>, audio: Boolean, aspect: Float, info: String) -> Unit,
-) : Thread("we-gl") {
-    @Volatile var playing = true
+) : Thread("we-gl"), WeRunner {
+    @Volatile override var playing = true
     @Volatile private var quit = false
 
-    fun finish() { quit = true; interrupt() }
+    override fun finish() { quit = true; interrupt() }
 
     override fun run() {
         var dpy: EGLDisplay = EGL14.EGL_NO_DISPLAY; var ctx: EGLContext = EGL14.EGL_NO_CONTEXT; var surf: EGLSurface = EGL14.EGL_NO_SURFACE
