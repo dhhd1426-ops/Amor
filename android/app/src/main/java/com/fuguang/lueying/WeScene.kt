@@ -42,10 +42,14 @@ internal class WeScene(private val pack: WePack, private val texts: WeTexts?) {
     /** 跳过的图层（一层坏了只跳过这一层，不连累别的） */
     val skipped = ArrayList<String>()
     var aspect = 16f / 9f; private set
+    /** 场景里有几个图层（诊断用） */
+    val total: Int get() = layers.size
     /** 场景里有没有听声音的效果（有才去读频谱） */
     var wantsAudio = false; private set
 
     private var W = 1920f; private var H = 1080f; private var q = 1f
+    /** 场景缓冲的大小（诊断用） */
+    val size: IntArray get() = if (::sceneBuf.isInitialized) intArrayOf(sceneBuf.w, sceneBuf.h) else intArrayOf(0, 0)
     private var clear = floatArrayOf(0f, 0f, 0f)
     private val layers = ArrayList<Layer>()
     private val textures = HashMap<String, Tex>()
@@ -71,6 +75,7 @@ internal class WeScene(private val pack: WePack, private val texts: WeTexts?) {
     }
     private fun vec(v: Any?, d: FloatArray): FloatArray = nums(v) ?: d
     private fun num(v: Any?, d: Float): Float = nums(v)?.firstOrNull() ?: d
+    private fun why(e: Throwable) = (e.message ?: e.javaClass.simpleName).trim().take(600)
     private fun text(path: String): String? = pack.text(path) ?: BUILTIN[path]
     private fun json(path: String): JSONObject = JSONObject(text(path) ?: throw IllegalStateException("包里没有 $path"))
 
@@ -105,7 +110,7 @@ internal class WeScene(private val pack: WePack, private val texts: WeTexts?) {
     private fun compile(type: Int, src: String, name: String): Int {
         val s = GLES30.glCreateShader(type); GLES30.glShaderSource(s, src); GLES30.glCompileShader(s)
         val ok = IntArray(1); GLES30.glGetShaderiv(s, GLES30.GL_COMPILE_STATUS, ok, 0)
-        if (ok[0] == 0) { val log = GLES30.glGetShaderInfoLog(s); GLES30.glDeleteShader(s); throw IllegalStateException("着色器编译失败 $name：${log.take(300)}") }
+        if (ok[0] == 0) { val log = GLES30.glGetShaderInfoLog(s).trim(); GLES30.glDeleteShader(s); throw IllegalStateException("着色器编译失败 $name\n$log") }
         return s
     }
     private fun link(vs: String, fs: String, name: String): Int {
@@ -114,8 +119,14 @@ internal class WeScene(private val pack: WePack, private val texts: WeTexts?) {
         GLES30.glBindAttribLocation(p, 0, "a_Position"); GLES30.glBindAttribLocation(p, 1, "a_TexCoord"); GLES30.glLinkProgram(p)
         GLES30.glDeleteShader(v); GLES30.glDeleteShader(f)
         val ok = IntArray(1); GLES30.glGetProgramiv(p, GLES30.GL_LINK_STATUS, ok, 0)
-        if (ok[0] == 0) { val log = GLES30.glGetProgramInfoLog(p); GLES30.glDeleteProgram(p); throw IllegalStateException("着色器链接失败 $name：${log.take(300)}") }
+        if (ok[0] == 0) { val log = GLES30.glGetProgramInfoLog(p).trim(); GLES30.glDeleteProgram(p); throw IllegalStateException("着色器链接失败 $name\n$log") }
         return p
+    }
+    /** HLSL 习惯写法（云朵天气 wall.js 里验证过）：1.0f；把 texSample2D 的结果直接赋给 float；组合开关当布尔用在 ?: 里 */
+    private fun hlsl(src0: String, combos: Collection<String>): String {
+        var src = src0.replace(F_SUFFIX1, "$1").replace(F_SUFFIX2, "$1.0").replace(TEX_TO_FLOAT, "$1$2.r;")
+        for (k in combos) if (IDENT_ONLY.matches(k)) src = src.replace(Regex("([=(,:?]\\s*)" + k + "\\s*\\?"), "$1($k != 0) ?")
+        return src
     }
     private fun expand(src: String, seen: HashSet<String>): String = INCLUDE.replace(src) { m ->
         val f = m.groupValues[1]
@@ -135,7 +146,7 @@ internal class WeScene(private val pack: WePack, private val texts: WeTexts?) {
             if (slot != null && j.has("combo")) defs[j.getString("combo")] = if (given.getOrElse(slot.groupValues[1].toInt()) { false }) 1f else 0f
         }
         if (combos != null) for (k in combos.keys()) defs[k] = num(combos.opt(k), 0f)
-        val vs = expand(v0, HashSet()); val fs = expand(f0, HashSet())
+        val vs = hlsl(expand(v0, HashSet()), defs.keys); val fs = hlsl(expand(f0, HashSet()), defs.keys)
         // #if 里用到但没人定义的名字一律当 0（GLSL ES 里未定义的名字会报错，WE 的编译器当 0）
         val defined = HashSet<String>(); for (m in DEFINE.findAll(HEAD + vs + fs)) defined += m.groupValues[1]
         for (m in IFLINE.findAll(vs + "\n" + fs)) for (id in IDENT.findAll(m.groupValues[1])) {
@@ -196,7 +207,7 @@ internal class WeScene(private val pack: WePack, private val texts: WeTexts?) {
         for (i in 0 until objects.length()) {
             val o = objects.optJSONObject(i) ?: continue
             try { build(o)?.let { layers += it } }
-            catch (e: Throwable) { skipped += (o.optString("name").ifEmpty { o.optString("id") }) + "：" + (e.message ?: e.javaClass.simpleName).lineSequence().first().take(80) }
+            catch (e: Throwable) { skipped += (o.optString("name").ifEmpty { o.optString("id") }) + "：" + why(e) }
         }
     }
 
@@ -239,6 +250,12 @@ internal class WeScene(private val pack: WePack, private val texts: WeTexts?) {
         for (i in 0 until effects.length()) {
             val e = effects.optJSONObject(i) ?: continue
             if (unwrap(e.opt("visible")) == false) continue
+            try { effect(l, e) } catch (err: Throwable) { skipped += (o.optString("name").ifEmpty { l.id }) + " › " + e.optString("file") + "：" + why(err) }
+        }
+        return l
+    }
+
+    private fun effect(l: Layer, e: JSONObject) {
             val def = json(e.getString("file"))
             val fbos = HashMap<String, Float>()
             def.optJSONArray("fbos")?.let { fa -> for (k in 0 until fa.length()) fa.optJSONObject(k)?.let { fbos[it.optString("name")] = it.optDouble("scale", 1.0).toFloat().coerceAtLeast(1f) } }
@@ -261,8 +278,6 @@ internal class WeScene(private val pack: WePack, private val texts: WeTexts?) {
                 passes += Pass(prog, values, names, binds, dp.optString("target").ifEmpty { null })
             }
             l.fx += Fx(fbos, passes)
-        }
-        return l
     }
 
     // ---------- 设 uniform ----------
@@ -389,7 +404,7 @@ internal class WeScene(private val pack: WePack, private val texts: WeTexts?) {
         into(sceneBuf); GLES30.glClearColor(clear[0], clear.getOrElse(1) { 0f }, clear.getOrElse(2) { 0f }, 1f); GLES30.glClear(GLES30.GL_COLOR_BUFFER_BIT)
         for (l in layers) {
             if (l.bad) continue
-            try { drawLayer(l) } catch (e: Throwable) { l.bad = true; skipped += l.o.optString("name").ifEmpty { l.id } + "：" + (e.message ?: e.javaClass.simpleName).lineSequence().first().take(80) }
+            try { drawLayer(l) } catch (e: Throwable) { l.bad = true; skipped += l.o.optString("name").ifEmpty { l.id } + "：" + why(e) }
         }
         GLES30.glBindFramebuffer(GLES30.GL_FRAMEBUFFER, 0); GLES30.glViewport(0, 0, sw, sh); GLES30.glDisable(GLES30.GL_BLEND)
         val r = rect(view, sw.toFloat() / max(1, sh), aspect)
@@ -413,6 +428,9 @@ internal class WeScene(private val pack: WePack, private val texts: WeTexts?) {
         private val IFLINE = Regex("^[ \\t]*#\\s*(?:if|elif)\\b(.*)$", RegexOption.MULTILINE)
         private val IDENT = Regex("[A-Za-z_]\\w*")
         private val IDENT_ONLY = Regex("[A-Za-z_]\\w*")
+        private val F_SUFFIX1 = Regex("(\\d+\\.\\d*|\\.\\d+)f\\b")
+        private val F_SUFFIX2 = Regex("\\b(\\d+)f\\b")
+        private val TEX_TO_FLOAT = Regex("(\\bfloat\\s+\\w+\\s*=\\s*)(texSample2D\\s*\\((?:[^()]|\\([^()]*\\))*\\))\\s*;")
         private val SLOT = Regex("g_Texture(\\d)")
         private val SLOT_RES = Regex("g_Texture(\\d)Resolution")
         private val AUDIO = Regex("g_AudioSpectrum(16|32|64)(Left|Right)")
@@ -476,6 +494,39 @@ vec3 ApplyBlending(const int mode, vec3 A, vec3 B, float o){
   else if (mode == 22) r = (A + B) * 0.5;
   return mix(A, r, o);
 }
+""",
+            "common_perspective.h" to """
+mat3 squareToQuad(vec2 p0, vec2 p1, vec2 p2, vec2 p3) {
+  float dx1 = p1.x - p2.x, dy1 = p1.y - p2.y, dx2 = p3.x - p2.x, dy2 = p3.y - p2.y;
+  float sx = p0.x - p1.x + p2.x - p3.x, sy = p0.y - p1.y + p2.y - p3.y;
+  float den = dx1 * dy2 - dx2 * dy1;
+  float g = (sx * dy2 - dx2 * sy) / den, h = (dx1 * sy - sx * dy1) / den;
+  return mat3(p1.x - p0.x + g * p1.x, p1.y - p0.y + g * p1.y, g,
+              p3.x - p0.x + h * p3.x, p3.y - p0.y + h * p3.y, h,
+              p0.x, p0.y, 1.0);
+}
+""",
+            "common_blur.h" to """
+vec4 weBlurTap(vec2 uv) { vec4 c = texSample2D(g_Texture0, uv); return vec4(c.rgb * c.a, c.a); }
+vec4 weBlurEnd(vec4 s) { return vec4(s.rgb / max(s.a, 1e-5), s.a); }
+vec4 blur13a(vec2 uv, vec2 d) {
+  const float w0 = 0.1592, w1 = 0.1473, w2 = 0.1165, w3 = 0.0789, w4 = 0.0457, w5 = 0.0227, w6 = 0.0096;
+  vec4 s = weBlurTap(uv) * w0;
+  s += (weBlurTap(uv + d) + weBlurTap(uv - d)) * w1; s += (weBlurTap(uv + d * 2.0) + weBlurTap(uv - d * 2.0)) * w2;
+  s += (weBlurTap(uv + d * 3.0) + weBlurTap(uv - d * 3.0)) * w3; s += (weBlurTap(uv + d * 4.0) + weBlurTap(uv - d * 4.0)) * w4;
+  s += (weBlurTap(uv + d * 5.0) + weBlurTap(uv - d * 5.0)) * w5; s += (weBlurTap(uv + d * 6.0) + weBlurTap(uv - d * 6.0)) * w6;
+  return weBlurEnd(s / (w0 + 2.0 * (w1 + w2 + w3 + w4 + w5 + w6)));
+}
+vec4 blur7a(vec2 uv, vec2 d) {
+  const float w0 = 0.2660, w1 = 0.2130, w2 = 0.1093, w3 = 0.0360;
+  vec4 s = weBlurTap(uv) * w0;
+  s += (weBlurTap(uv + d) + weBlurTap(uv - d)) * w1; s += (weBlurTap(uv + d * 2.0) + weBlurTap(uv - d * 2.0)) * w2; s += (weBlurTap(uv + d * 3.0) + weBlurTap(uv - d * 3.0)) * w3;
+  return weBlurEnd(s / (w0 + 2.0 * (w1 + w2 + w3)));
+}
+vec4 blur3a(vec2 uv, vec2 d) { return weBlurEnd(weBlurTap(uv) * 0.5 + (weBlurTap(uv + d) + weBlurTap(uv - d)) * 0.25); }
+vec3 blur13(vec2 uv, vec2 d) { return blur13a(uv, d).rgb; }
+vec3 blur7(vec2 uv, vec2 d) { return blur7a(uv, d).rgb; }
+vec3 blur3(vec2 uv, vec2 d) { return blur3a(uv, d).rgb; }
 """,
             "common_composite.h" to """
 #ifndef COMPOSITE

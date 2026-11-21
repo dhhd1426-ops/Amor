@@ -38,8 +38,8 @@ internal class WeThread(
     private val texts: WeTexts?,
     private val view: () -> FloatArray,
     private val bands: () -> FloatArray?,
-    /** GL 线程上回调：ok、出错的话是原因、跳过的图层、场景要不要听声音、场景宽高比 */
-    private val onState: (ok: Boolean, error: String, skipped: List<String>, audio: Boolean, aspect: Float) -> Unit,
+    /** GL 线程上回调：ok、出错的话是原因、跳过的图层、场景要不要听声音、场景宽高比、诊断信息（显卡、图层数、包版本） */
+    private val onState: (ok: Boolean, error: String, skipped: List<String>, audio: Boolean, aspect: Float, info: String) -> Unit,
 ) : Thread("we-gl") {
     @Volatile var playing = true
     @Volatile private var quit = false
@@ -48,7 +48,7 @@ internal class WeThread(
 
     override fun run() {
         var dpy: EGLDisplay = EGL14.EGL_NO_DISPLAY; var ctx: EGLContext = EGL14.EGL_NO_CONTEXT; var surf: EGLSurface = EGL14.EGL_NO_SURFACE
-        var pack: WePack? = null; var scene: WeScene? = null
+        var pack: WePack? = null; var scene: WeScene? = null; var gpu = "未知"
         try {
             dpy = EGL14.eglGetDisplay(EGL14.EGL_DEFAULT_DISPLAY)
             val ver = IntArray(2)
@@ -62,6 +62,7 @@ internal class WeThread(
             surf = EGL14.eglCreateWindowSurface(dpy, cfg, surface, intArrayOf(EGL14.EGL_NONE), 0)
             if (surf == EGL14.EGL_NO_SURFACE) throw IllegalStateException("画面建不起来")
             if (!EGL14.eglMakeCurrent(dpy, surf, surf, ctx)) throw IllegalStateException("画面建不起来")
+            gpu = "${android.opengl.GLES30.glGetString(android.opengl.GLES30.GL_RENDERER)} · ${android.opengl.GLES30.glGetString(android.opengl.GLES30.GL_VERSION)}"
 
             pack = WePack(file)
             scene = WeScene(pack, texts)
@@ -75,12 +76,12 @@ internal class WeThread(
                 last = now
                 scene.frame(clock.toFloat(), max(1, w), max(1, h), view(), bands())
                 if (!EGL14.eglSwapBuffers(dpy, surf)) break // 表面没了
-                if (first || scene.skipped.size != reported) { first = false; reported = scene.skipped.size; onState(true, "", ArrayList(scene.skipped), scene.wantsAudio, scene.aspect) }
+                if (first || scene.skipped.size != reported) { first = false; reported = scene.skipped.size; onState(true, "", ArrayList(scene.skipped), scene.wantsAudio, scene.aspect, "显卡：$gpu\n包：${pack.version} · ${scene.total} 个图层 · 渲染 ${scene.size[0]}×${scene.size[1]}") }
                 val left = FRAME_NS - (System.nanoTime() - now)
                 if (left > 1_000_000) try { sleep(left / 1_000_000, (left % 1_000_000).toInt()) } catch (_: InterruptedException) {}
             }
         } catch (e: Throwable) {
-            if (!quit) onState(false, (e.message ?: e.javaClass.simpleName).lineSequence().first().take(120), emptyList(), false, 16f / 9f)
+            if (!quit) onState(false, (e.message ?: e.javaClass.simpleName).trim().take(600), emptyList(), false, 16f / 9f, "显卡：$gpu\n包：${pack?.version ?: "没打开"}")
         } finally {
             runCatching { scene?.release() }
             runCatching { pack?.close() }

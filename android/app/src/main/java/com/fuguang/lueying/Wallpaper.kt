@@ -109,8 +109,8 @@ internal class Wall(val id: String, val name: String, val kind: String, val file
     /** 缩放、中心 x、中心 y（占整张画面的比例，左上为原点）。渲染线程直接读。 */
     val view = floatArrayOf(1f, .5f, .5f)
     @Volatile var aspect = 16f / 9f
-    /** 出错的原因，或跳过了哪些图层 */
-    var note by mutableStateOf("")
+    /** 诊断：画得怎么样、哪里出了问题。长按壁纸看，能复制发给 Claude */
+    var diag by mutableStateOf("")
     val path: File get() = File(Walls.dir, file)
     val thumb: File get() = File(Walls.dir, "$id.jpg")
 }
@@ -138,8 +138,11 @@ internal object Walls {
     /** 屏幕宽高比 */
     @Volatile var ca = .5f
 
+    private var ver = "?"
+
     fun init(ctx: Context, p: Prefs) {
         prefs = p
+        ver = runCatching { ctx.packageManager.getPackageInfo(ctx.packageName, 0).versionName }.getOrNull() ?: "?"
         dir = File(ctx.filesDir, "walls").apply { mkdirs() }
         list.clear()
         runCatching {
@@ -199,6 +202,10 @@ internal object Walls {
         undo = null; list.add(i.coerceIn(0, list.size), w); save()
     }
     fun purge(w: Wall) { dir.listFiles()?.forEach { f -> if (f.name.substringBefore('.') == w.id) f.delete() } }
+
+    /** 诊断框开头：哪张、哪一版、哪台手机 */
+    fun diagHead(w: Wall): String =
+        "壁纸：${w.name}（${w.kind}）\nApp：第 ${ver.substringAfterLast('.')} 版\n手机：${android.os.Build.MANUFACTURER} ${android.os.Build.MODEL} · 安卓 ${android.os.Build.VERSION.RELEASE}\n"
 
     fun micAsked(): Boolean = prefs?.string(ASKED) == "1"
     fun markMicAsked() { prefs?.putString(ASKED, "1") }
@@ -317,11 +324,15 @@ private class WeHost(ctx: Context, private val wall: Wall, private val onReady: 
 
     override fun onSurfaceTextureAvailable(st: SurfaceTexture, w: Int, h: Int) {
         stop()
-        val t = WeThread(st, w, h, wall.path, scripts, view, bands) { ok, err, skipped, au, aspect ->
+        val t = WeThread(st, w, h, wall.path, scripts, view, bands) { ok, err, skipped, au, aspect, info ->
             main.post {
                 if (closed) return@post
                 wall.aspect = aspect
-                wall.note = if (!ok) err else if (skipped.isEmpty()) "" else "有 ${skipped.size} 个图层没画出来：\n" + skipped.joinToString("\n")
+                wall.diag = Walls.diagHead(wall) + info + "\n\n" + when {
+                    !ok -> "整张没画出来：\n$err"
+                    skipped.isEmpty() -> "全部画出来了"
+                    else -> "有 ${skipped.size} 处没画出来：\n\n" + skipped.mapIndexed { i, s -> "${i + 1}. $s" }.joinToString("\n\n")
+                }
                 if (ok && au && !audio) { audio = true; if (playing) startViz() }
                 onReady(ok)
             }
@@ -418,7 +429,7 @@ private fun VideoWall(w: Wall, playing: Boolean) {
 // ---------- 壁纸页 ----------
 
 private val wallBack = Ic("M14.5 6l-6 6 6 6")
-private val wallImport = Ic("M12 4v11M7.5 10.5L12 15l4.5-4.5M5 19.5h14")
+private val wallImport = Ic("M12 5v14M5 12h14")
 internal val WallGlyph = Ic("M4 6.5h16v11h-16v-11M4 15l4.5-4 4 3.5 3-2.5 4.5 4", circles = listOf(floatArrayOf(15.5f, 10f, 1.2f)))
 
 @Composable
@@ -489,7 +500,7 @@ internal fun WallpaperPage(onBack: () -> Unit) {
                         haptic.performHapticFeedback(HapticFeedbackType.LongPress)
                         AppSheet.open {
                             KSheetTitle(w.name)
-                            if (w.note.isNotEmpty()) Txt(w.note, K.sub, 12.sp, Modifier.padding(start = 4.dp, end = 4.dp, bottom = 8.dp), lineHeight = 19.sp)
+                            DiagBox(w.diag.ifEmpty { Walls.diagHead(w) + "\n" + if (w.kind == "scene") "还没画过：先点它换上" else "图片、视频壁纸不用渲染器" })
                             KOption("删除", false) { AppSheet.close(); Walls.remove(w) }
                         }
                     })
@@ -529,6 +540,31 @@ private fun WallTile(name: String, img: ImageBitmap?, on: Boolean, onTap: () -> 
         ) { Txt(name, Color.White, 13.5.sp, maxLines = 1) }
         if (k > .01f) Box(Modifier.align(Alignment.TopEnd).padding(10.dp).size(26.dp).scale(k).background(Skin.accent, CircleShape), contentAlignment = Alignment.Center) {
             DrawnCheck(Skin.onAccent, 14.dp)
+        }
+    }
+}
+
+/**
+ * 诊断框：等宽字、能选中，右上角「复制」。出问题时用户截图或复制发来就能定位。
+ * 以后新功能都照这个做（问题指南「诊断框」一节）。
+ */
+@Composable
+internal fun DiagBox(text: String) {
+    val ctx = LocalContext.current
+    var copied by remember { mutableStateOf(false) }
+    LaunchedEffect(copied) { if (copied) { delay(1600); copied = false } }
+    Column(Modifier.fillMaxWidth().padding(bottom = 10.dp).clip(RoundedCornerShape(14.dp)).background(Color.Black.copy(alpha = .28f))) {
+        Row(Modifier.fillMaxWidth().padding(start = 14.dp, end = 4.dp, top = 4.dp), verticalAlignment = Alignment.CenterVertically) {
+            Txt("诊断", K.sub, 12.sp, Modifier.weight(1f), maxLines = 1)
+            Pressable({
+                (ctx.getSystemService(Context.CLIPBOARD_SERVICE) as android.content.ClipboardManager).setPrimaryClip(android.content.ClipData.newPlainText("诊断", text))
+                copied = true
+            }, label = "复制") { pr ->
+                Txt(if (copied) "已复制" else "复制", K.acc, 13.sp, Modifier.clip(RoundedCornerShape(50)).background(K.acc.copy(alpha = if (pr) .22f else 0f)).padding(horizontal = 12.dp, vertical = 8.dp), maxLines = 1)
+            }
+        }
+        androidx.compose.foundation.text.selection.SelectionContainer {
+            Txt(text, K.ink.copy(alpha = .88f), 12.sp, Modifier.fillMaxWidth().padding(start = 14.dp, end = 14.dp, bottom = 14.dp), lineHeight = 18.sp, family = androidx.compose.ui.text.font.FontFamily.Monospace)
         }
     }
 }
