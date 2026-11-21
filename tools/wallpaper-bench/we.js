@@ -152,10 +152,30 @@ const nums = v => {
   if (typeof v === 'number') return [v];
   if (typeof v === 'boolean') return [v ? 1 : 0];
   if (typeof v === 'string') return v.trim().split(/[\s,]+/).map(Number);
-  if (typeof v === 'object' && 'value' in v) return nums(v.value);
+  if (typeof v === 'object' && ('value' in v || 'user' in v)) return nums(val(v));
   return null;
 };
-const val = v => (v && typeof v === 'object' && 'value' in v) ? v.value : v;
+/* 场景里的值可能绑在壁纸的用户属性上（project.json 的 general.properties）：
+ * {"user":"名字","value":默认} → 取这个属性现在的值；{"user":{"name":"名字","condition":"值"},"value":…} → 属性等于这个值时为真（常用来切换图层显示）。 */
+let PROPS = {};
+/* 材质的 usershadervalues：{着色器参数名: 用户属性名}，参数取这个属性现在的值 */
+const userValues = (base, map) => {
+  const out = Object.assign({}, base);
+  for (const k in (map || {})) { // 两种写法都见过：{属性名: 参数名}（shimmering_particles）和 {参数名: 属性名}
+    const v = map[k];
+    if (PROPS[k] && 'value' in PROPS[k]) out[v] = PROPS[k].value; else if (PROPS[v] && 'value' in PROPS[v]) out[k] = PROPS[v].value;
+  }
+  return out;
+};
+const val = v => {
+  if (v && typeof v === 'object' && 'user' in v) {
+    const u = v.user, nm = typeof u === 'string' ? u : u && u.name, p = PROPS[nm];
+    if (!p || !('value' in p)) return v.value;
+    if (u && typeof u === 'object' && 'condition' in u) return String(p.value) === String(u.condition);
+    return p.value;
+  }
+  return (v && typeof v === 'object' && 'value' in v) ? v.value : v;
+};
 
 async function create(canvas, base, opts) {
   opts = opts || {};
@@ -168,6 +188,7 @@ async function create(canvas, base, opts) {
 
   /* 场景文件名在 project.json 的 file 里，不一定叫 scene.json（官方示例 fantasticcar.json、techno.json） */
   let pj = {}; try { pj = JSON.parse(pack.text['project.json'] || '{}'); } catch (e) {}
+  PROPS = (pj.general && pj.general.properties) || {};
   const scene = json(pj.file && /\.json$/i.test(pj.file) ? pj.file : 'scene.json');
   const ortho = scene.general.orthogonalprojection || { width: 1920, height: 1080 };
   const W = ortho.width, H = ortho.height;
@@ -264,7 +285,7 @@ async function create(canvas, base, opts) {
     if (vsrc0 == null || fsrc0 == null) throw new Error('包里没有着色器 ' + shader);
     const both = vsrc0 + '\n' + fsrc0, defs = {}, ann = {};
     for (const m of both.matchAll(/\/\/\s*\[COMBO\]\s*(\{.*\})/g)) { try { const j = JSON.parse(m[1]); defs[j.combo] = j.default ?? 0; } catch (e) {} }
-    for (const m of both.matchAll(/uniform\s+(\w+)\s+(\w+)\s*(?:\[\d+\])?\s*;\s*\/\/\s*(\{.*\})/g)) {
+    for (const m of both.matchAll(/uniform\s+(?:(?:lowp|mediump|highp)\s+)?(\w+)\s+(\w+)\s*(?:\[\d+\])?\s*;\s*\/\/\s*(\{.*\})/g)) { // 作者的着色器会带精度修饰（uniform lowp vec3 …）
       try { const j = JSON.parse(m[3]); ann[m[2]] = j;
         const slot = /^g_Texture(\d)$/.exec(m[2]); if (slot && j.combo) defs[j.combo] = given[+slot[1]] ? 1 : 0;
       } catch (e) {}
@@ -310,7 +331,7 @@ async function create(canvas, base, opts) {
   }
 
   /* ---------- 设 uniform ---------- */
-  let time = 0;
+  let time = 0, lastT = 0;
   function bind(prog, ctx) {
     gl.useProgram(prog.p);
     for (const u of prog.us) {
@@ -318,6 +339,7 @@ async function create(canvas, base, opts) {
       if ((m = /^g_Texture(\d)$/.exec(n))) { const i = +m[1], t = ctx.tex[i] || util['util/white']; gl.activeTexture(gl.TEXTURE0 + i); gl.bindTexture(gl.TEXTURE_2D, t.tex); gl.uniform1i(u.loc, i); continue; }
       if ((m = /^g_Texture(\d)Resolution$/.exec(n))) { const t = ctx.tex[+m[1]] || util['util/white']; gl.uniform4f(u.loc, t.w, t.h, t.iw ?? t.w, t.ih ?? t.h); continue; }
       if (n === 'g_ModelViewProjectionMatrix') { gl.uniformMatrix4fv(u.loc, false, ctx.mvp || IDENT); continue; }
+      if (u.type === gl.FLOAT_MAT4) { gl.uniformMatrix4fv(u.loc, false, IDENT); continue; }
       if (n === 'g_Time') { gl.uniform1f(u.loc, time); continue; }
       if ((m = /^g_AudioSpectrum(16|32|64)(Left|Right)$/.exec(n))) { gl.uniform1fv(u.loc, audio[m[1]][m[2] === 'Left' ? 0 : 1]); continue; }
       let v = null;
@@ -333,6 +355,139 @@ async function create(canvas, base, opts) {
         case gl.INT: case gl.BOOL: gl.uniform1i(u.loc, g(0)); break;
       }
     }
+  }
+
+
+  /* ---------- 粒子（照官方：CPU 模拟，每个粒子四个顶点交给官方 genericparticle 着色器的「无几何着色器」那条路） ----------
+   * 顶点格式（genericparticle.vert）：a_Position 粒子中心；a_TexCoordVec4 = (角上的 uv, 绕 z 旋转, 大小)；a_TexCoordC2 = 绕 x、y 旋转；
+   * a_Color；THICKFORMAT 时 a_TexCoordVec4C1 = (速度, 寿命进度)，拖尾渲染要用。坐标单位是场景像素，y 朝上，相对图层原点。 */
+  const R = (a, b) => a + Math.random() * (b - a);
+  const v3 = (x, d) => { const n = nums(val(x)); return n ? [n[0] ?? d[0], n[1] ?? n[0] ?? d[1], n[2] ?? (n.length === 1 ? n[0] : d[2])] : d.slice(); };
+  const num1 = (x, d) => { const n = nums(val(x)); return n ? n[0] : d; };
+  function buildParticle(o, L) {
+    const def = json(val(o.particle));
+    const mp = json(def.material).passes[0];
+    const io = o.instanceoverride || {}; const ov = k => num1(io[k], 1);
+    const names = mp.textures || [];
+    const trail = (def.renderer || []).find(r => r.name === 'spritetrail' || r.name === 'ropetrail');
+    const combos = Object.assign({}, mp.combos || {}, trail ? { TRAILRENDERER: 1, THICKFORMAT: 1 } : {});
+    const given = []; names.forEach((n, k) => { if (n) given[k] = true; }); given[0] = true;
+    const prog = program(mp.shader || 'genericparticle', combos, given);
+    const loc = n => gl.getAttribLocation(prog.p, n);
+    const P = {
+      prog, tex: names.map(n => n ? texture(n) : null), values: userValues(mp.constantshadervalues, mp.usershadervalues), blend: mp.blending || 'translucent',
+      max: Math.max(1, Math.round((def.maxcount || 100) * ov('count'))), list: [], trail,
+      rateMul: ov('rate') * ov('count'), lifeMul: ov('lifetime'), sizeMul: ov('size'), speedMul: ov('speed'), alphaMul: ov('alpha'),
+      colorMul: io.color ? v3(io.color, [1, 1, 1]) : io.colorn ? v3(io.colorn, [1, 1, 1]) : [1, 1, 1],
+      em: (def.emitter || []).map(e => ({ e, acc: 0, done: false })), init: def.initializer || [], ops: def.operator || [],
+      loc: { pos: loc('a_Position'), uv: loc('a_TexCoordVec4'), c2: loc('a_TexCoordC2'), col: loc('a_Color'), c1: loc('a_TexCoordVec4C1') },
+      vao: gl.createVertexArray(), vbo: gl.createBuffer(), ibo: gl.createBuffer(), cap: 0,
+    };
+    const unknown = [...P.em.map(x => x.e.name), ...P.init.map(x => x.name), ...P.ops.map(x => x.name)].filter(n => !PARTS.has(n));
+    if (unknown.length) skipped.push((o.name || o.id) + '：粒子里还没做的：' + [...new Set(unknown)].join('、'));
+    if ((def.children || []).length) skipped.push((o.name || o.id) + '：子粒子（还没做）');
+    L.kind = 'particle'; L.P = P;
+    for (let t = 0, w = Math.min(10, +def.starttime || 0); t < w; t += 1 / 30) stepParticles(P, 1 / 30); // 起始时间：先空跑这么久，一打开就是满的
+  }
+  const PARTS = new Set(['sphererandom', 'boxrandom', 'lifetimerandom', 'sizerandom', 'velocityrandom', 'colorrandom', 'alpharandom', 'rotationrandom',
+    'angularvelocityrandom', 'movement', 'angularmovement', 'alphafade', 'sizechange', 'alphachange', 'colorchange', 'oscillatealpha', 'oscillatesize', 'oscillateposition', 'sprite', 'spritetrail']);
+  function spawn(P, e) {
+    const p = { pos: [0, 0, 0], vel: [0, 0, 0], rot: [0, 0, 0], av: [0, 0, 0], size: 20, life: 1, age: 0, col: [1, 1, 1], alpha: 1, osc: [] };
+    const org = v3(e.origin, [0, 0, 0]);
+    if (e.name === 'boxrandom') {
+      const mn = v3(e.distancemin, [0, 0, 0]), mx = v3(e.distancemax, [256, 256, 256]);
+      for (let k = 0; k < 3; k++) p.pos[k] = org[k] + R(mn[k], mx[k]) * (Math.random() < .5 ? -1 : 1);
+    } else { // sphererandom：随机方向 × 随机距离，再按 directions 各轴缩放
+      let d; do { d = [R(-1, 1), R(-1, 1), R(-1, 1)]; } while (d[0] * d[0] + d[1] * d[1] + d[2] * d[2] > 1 || d[0] * d[0] + d[1] * d[1] + d[2] * d[2] < 1e-6);
+      const l = Math.hypot(d[0], d[1], d[2]); const dir = v3(e.directions, [1, 1, 0]); const r = R(num1(e.distancemin, 0), num1(e.distancemax, 256));
+      for (let k = 0; k < 3; k++) { d[k] = d[k] / l * dir[k]; p.pos[k] = org[k] + d[k] * r; }
+      const sp = R(num1(e.speedmin, 0), num1(e.speedmax, 0)); for (let k = 0; k < 3; k++) p.vel[k] = d[k] * sp;
+    }
+    for (const i of P.init) {
+      const mn = i.min, mx = i.max;
+      if (i.name === 'lifetimerandom') p.life = R(num1(mn, 1), num1(mx, 1));
+      else if (i.name === 'sizerandom') p.size = R(num1(mn, 20), num1(mx, 20));
+      else if (i.name === 'alpharandom') p.alpha = R(num1(mn, 1), num1(mx, 1));
+      else if (i.name === 'velocityrandom') { const a = v3(mn, [-32, -32, 0]), b = v3(mx, [32, 32, 0]); for (let k = 0; k < 3; k++) p.vel[k] += R(a[k], b[k]); }
+      else if (i.name === 'colorrandom') { const a = v3(mn, [0, 0, 0]), b = v3(mx, [255, 255, 255]); for (let k = 0; k < 3; k++) p.col[k] = R(a[k], b[k]) / 255; } // 没写范围时官方是 0–255 随机
+      else if (i.name === 'rotationrandom') { const a = v3(mn, [0, 0, 0]), b = v3(mx, [0, 0, Math.PI * 2]); for (let k = 0; k < 3; k++) p.rot[k] = R(a[k], b[k]); }
+      else if (i.name === 'angularvelocityrandom') { const a = v3(mn, [0, 0, -5]), b = v3(mx, [0, 0, 5]); for (let k = 0; k < 3; k++) p.av[k] = R(a[k], b[k]); }
+    }
+    p.life *= P.lifeMul; p.size *= P.sizeMul; for (let k = 0; k < 3; k++) p.vel[k] *= P.speedMul;
+    // 每个振荡运算一组自己的频率、幅度、相位
+    P.ops.forEach((o, k) => { if (/^oscillate/.test(o.name)) p.osc[k] = [R(num1(o.frequencymin, 0), num1(o.frequencymax, num1(o.frequencymin, 1))), R(num1(o.scalemin, 0), num1(o.scalemax, 1)), R(num1(o.phasemin, 0), num1(o.phasemax, Math.PI * 2)), R(0, 6.283), R(0, 6.283)]; });
+    P.list.push(p);
+  }
+  function stepParticles(P, dt) {
+    for (const x of P.em) {
+      const e = x.e;
+      if (+e.instantaneous) { if (!x.done) { x.done = true; for (let k = 0; k < +e.instantaneous && P.list.length < P.max; k++) spawn(P, e); } continue; }
+      x.acc += num1(e.rate, 5) * P.rateMul * dt;
+      while (x.acc >= 1) { x.acc -= 1; if (P.list.length < P.max) spawn(P, e); }
+    }
+    for (const p of P.list) {
+      p.age += dt;
+      for (const o of P.ops) {
+        if (o.name === 'movement') {
+          const g = v3(o.gravity, [0, 0, 0]), dr = num1(o.drag, 0);
+          for (let k = 0; k < 3; k++) { p.vel[k] += g[k] * dt; p.vel[k] -= p.vel[k] * dr * dt; p.pos[k] += p.vel[k] * dt; }
+        } else if (o.name === 'angularmovement') {
+          const f = v3(o.force, [0, 0, 0]), dr = num1(o.drag, 0);
+          for (let k = 0; k < 3; k++) { p.av[k] += f[k] * dt; p.av[k] -= p.av[k] * dr * dt; p.rot[k] += p.av[k] * dt; }
+        }
+      }
+    }
+    P.list = P.list.filter(p => p.age < p.life);
+  }
+  /* 这一刻的透明度、大小、颜色、位置偏移：寿命进度相关的运算每帧从初值算，不累积 */
+  function look(P, p) {
+    const t = Math.min(1, p.age / p.life); let a = p.alpha * P.alphaMul, s = p.size, c = p.col.slice(), off = [0, 0, 0];
+    const ramp = (o, d0, d1) => { const st = num1(o.starttime, 0), et = num1(o.endtime, 1); const f = Math.min(1, Math.max(0, (t - st) / Math.max(1e-4, et - st))); return [f, num1(o.startvalue, d0), num1(o.endvalue, d1)]; };
+    P.ops.forEach((o, k) => {
+      const q = p.osc[k];
+      if (o.name === 'alphafade') { const fi = num1(o.fadeintime, .5), fo = num1(o.fadeouttime, .5); if (t < fi) a *= t / fi; if (t > 1 - fo) a *= Math.max(0, (1 - t) / fo); }
+      else if (o.name === 'sizechange') { const [f, x0, x1] = ramp(o, 1, 0); s *= x0 + (x1 - x0) * f; }
+      else if (o.name === 'alphachange') { const [f, x0, x1] = ramp(o, 1, 0); a *= x0 + (x1 - x0) * f; }
+      else if (o.name === 'colorchange') { const st = num1(o.starttime, 0), et = num1(o.endtime, 1), f = Math.min(1, Math.max(0, (t - st) / Math.max(1e-4, et - st))); const c0 = v3(o.startvalue, [1, 1, 1]), c1 = v3(o.endvalue, [1, 1, 1]); for (let k2 = 0; k2 < 3; k2++) c[k2] *= c0[k2] + (c1[k2] - c0[k2]) * f; }
+      else if (o.name === 'oscillatealpha' && q) a *= 1 - q[1] * (.5 + .5 * Math.sin(6.283 * q[0] * p.age + q[2]));
+      else if (o.name === 'oscillatesize' && q) s *= 1 - q[1] * (.5 + .5 * Math.sin(6.283 * q[0] * p.age + q[2]));
+      else if (o.name === 'oscillateposition' && q) { const m = v3(o.mask, [1, 1, 0]); off[0] += m[0] * q[1] * Math.sin(6.283 * q[0] * p.age + q[2]); off[1] += m[1] * q[1] * Math.sin(6.283 * q[0] * p.age + q[3]); off[2] += m[2] * q[1] * Math.sin(6.283 * q[0] * p.age + q[4]); }
+    });
+    return { a: Math.max(0, Math.min(1, a)), s, c: [c[0] * P.colorMul[0], c[1] * P.colorMul[1], c[2] * P.colorMul[2]], off, t };
+  }
+  const CORNER = [0, 0, 1, 0, 0, 1, 1, 1];
+  function drawParticles(L, dt) {
+    const P = L.P; stepParticles(P, dt);
+    const n = P.list.length; if (!n) return;
+    const F = 17, data = new Float32Array(n * 4 * F);
+    let i = 0;
+    for (const p of P.list) {
+      const k = look(P, p);
+      for (let v = 0; v < 4; v++) {
+        data.set([p.pos[0] + k.off[0], p.pos[1] + k.off[1], p.pos[2] + k.off[2], CORNER[v * 2], CORNER[v * 2 + 1], p.rot[2], k.s, p.rot[0], p.rot[1], k.c[0], k.c[1], k.c[2], k.a, p.vel[0], p.vel[1], p.vel[2], k.t], i); i += F;
+      }
+    }
+    gl.bindVertexArray(P.vao);
+    gl.bindBuffer(gl.ARRAY_BUFFER, P.vbo); gl.bufferData(gl.ARRAY_BUFFER, data, gl.DYNAMIC_DRAW);
+    if (P.cap < n) { // 索引：每个粒子两个三角形
+      P.cap = Math.max(n, P.max); const idx = new Uint32Array(P.cap * 6);
+      for (let q = 0; q < P.cap; q++) idx.set([q * 4, q * 4 + 1, q * 4 + 2, q * 4 + 2, q * 4 + 1, q * 4 + 3], q * 6);
+      gl.bindBuffer(gl.ELEMENT_ARRAY_BUFFER, P.ibo); gl.bufferData(gl.ELEMENT_ARRAY_BUFFER, idx, gl.STATIC_DRAW);
+      const at = (l, size, off) => { if (l < 0) return; gl.enableVertexAttribArray(l); gl.vertexAttribPointer(l, size, gl.FLOAT, false, F * 4, off * 4); };
+      at(P.loc.pos, 3, 0); at(P.loc.uv, 4, 3); at(P.loc.c2, 2, 7); at(P.loc.col, 4, 9); at(P.loc.c1, 4, 13);
+    }
+    into(sceneBuf); gl.enable(gl.BLEND);
+    if (P.blend === 'additive') gl.blendFuncSeparate(gl.SRC_ALPHA, gl.ONE, gl.ZERO, gl.ONE);
+    else gl.blendFuncSeparate(gl.SRC_ALPHA, gl.ONE_MINUS_SRC_ALPHA, gl.ONE, gl.ONE_MINUS_SRC_ALPHA);
+    const c = Math.cos(L.angle), s = Math.sin(L.angle), sx = L.scale[0], sy = L.scale[1];
+    const mvp = new Float32Array([c * sx * 2 / W, s * sx * 2 / H, 0, 0, -s * sy * 2 / W, c * sy * 2 / H, 0, 0, 0, 0, 0, 0, L.origin[0] * 2 / W - 1, L.origin[1] * 2 / H - 1, 0, 1]);
+    const tr = P.trail || {};
+    bind(P.prog, { tex: P.tex, values: P.values, mvp, extra: {
+      g_OrientationRight: [1, 0, 0], g_OrientationUp: [0, 1, 0], g_OrientationForward: [0, 0, 1], g_ViewRight: [1, 0, 0], g_ViewUp: [0, 1, 0],
+      g_EyePosition: [0, 0, 1e5], g_ModelMatrixInverse: null, g_RenderVar0: [num1(tr.length, .05), num1(tr.maxlength, 10), num1(tr.minlength, 0), 0], g_RenderVar1: [1, 1, 1, 1],
+    } });
+    gl.drawElements(gl.TRIANGLES, n * 6, gl.UNSIGNED_INT, 0);
+    gl.bindVertexArray(null);
   }
 
   /* ---------- 图层 ---------- */
@@ -371,7 +526,7 @@ async function create(canvas, base, opts) {
         L.blend = mp.blending || 'translucent';
         if (rt || !/^genericimage\d?$/.test(mp.shader || 'genericimage2')) { // 要拿整帧画面的，也走这条
           const given = []; names.forEach((n, k) => { if (n) given[k] = true; });
-          L.base = { prog: program(mp.shader, mp.combos || {}, given), names, values: mp.constantshadervalues || {} };
+          L.base = { prog: program(mp.shader, mp.combos || {}, given), names, values: userValues(mp.constantshadervalues, mp.usershadervalues) };
         }
         if (model.width && model.height) L.msize = [model.width, model.height];
         if (model.puppet) skipped.push((o.name || o.id) + '：骨骼动画（还没做，先画静态图）');
@@ -381,8 +536,10 @@ async function create(canvas, base, opts) {
     } else if (o.text) {
       L.kind = 'text'; L.script = scriptOf(o.text, o.id); L.static = typeof o.text === 'object' ? String(val(o.text.value) ?? '') : String(o.text);
       L.px = (+val(o.pointsize) || 10) * 16 / 3; /* 1pt = 4/3 px，再按 4 倍场景算；和官方预览图量出来的字高一致 */ L.pad = +val(o.padding) || 0; L.cv = document.createElement('canvas'); L.tex = mkTex(1, 1, null); L.size = [1, 1]; L.str = null;
+    } else if (o.particle) {
+      buildParticle(o, L); layers.push(L); continue;
     } else {
-      const what = o.particle ? '粒子' : o.model ? '3D 模型' : o.light ? '灯光' : null;
+      const what = o.model ? '3D 模型' : o.light ? '灯光' : null;
       if (what) skipped.push((o.name || o.id) + '：' + what + '（还没做）');
       continue;
     }
@@ -393,7 +550,7 @@ async function create(canvas, base, opts) {
       def.passes.forEach((dp, i) => {
         const inst = (e.passes || [])[i] || {}; const mp = json(dp.material).passes[0];
         const texNames = inst.textures || []; const given = []; texNames.forEach((t, k) => { if (t) given[k] = true; }); (dp.bind || []).forEach(b => given[b.index] = true); given[0] = true;
-        fx.passes.push({ prog: program(mp.shader, Object.assign({}, mp.combos, inst.combos), given), values: Object.assign({}, mp.constantshadervalues, inst.constantshadervalues), texNames, binds: dp.bind || [], target: dp.target });
+        fx.passes.push({ prog: program(mp.shader, Object.assign({}, mp.combos, inst.combos), given), values: userValues(Object.assign({}, mp.constantshadervalues, inst.constantshadervalues), Object.assign({}, mp.usershadervalues, inst.usershadervalues)), texNames, binds: dp.bind || [], target: dp.target });
       });
       L.fx.push(fx);
     } catch (err) { skipped.push((o.name || o.id) + ' › ' + e.file + '：' + String(err.message)); } }
@@ -443,6 +600,7 @@ async function create(canvas, base, opts) {
   }
   function drawLayer(L) {
     if (val(L.o.visible) === false) return;
+    if (L.kind === 'particle') { drawParticles(L, Math.min(.1, Math.max(0, time - lastT))); return; }
     if (L.kind === 'text') drawText(L);
     if (!L.fx.length && L.kind !== 'compose' && !L.base) { toScene(L, L.tex); return; }
     const bw = L.size[0] * q, bh = L.size[1] * q;
@@ -471,7 +629,7 @@ async function create(canvas, base, opts) {
   const clear = vec(scene.general.clearcolor, [0, 0, 0]);
   const posX = opts.positionX ?? .5;
   function frame(t) {
-    time = t; tickAudio(t); frameNo++;
+    lastT = time; time = t; tickAudio(t); frameNo++;
     into(sceneBuf); gl.clearColor(clear[0], clear[1], clear[2], 1); gl.clear(gl.COLOR_BUFFER_BIT);
     for (const L of layers) { if (L.bad) continue; try { drawLayer(L); } catch (e) { L.bad = true; skipped.push((L.o.name || L.id) + '：' + String(e.message).split('\n')[0]); console.warn('跳过图层', L.o.name, e); } }
     if (canvas.width !== Math.round(canvas.clientWidth * dpr) || canvas.height !== Math.round(canvas.clientHeight * dpr)) fit();

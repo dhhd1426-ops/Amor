@@ -37,6 +37,7 @@ internal class WeScene(private val pack: WePack, private val texts: WeTexts?, pr
         var a: Tex? = null; var b: Tex? = null; var bad = false
         /** 材质自己的着色器（不是 genericimage 那一类时）、它的贴图名和参数；混合方式 */
         var base: Pass? = null; var blend = "translucent"
+        var ps: Ps? = null
         // 文字层
         var px = 40f; var pad = 0f; var fixed = ""; var str: String? = null; var align = "center"; var id = ""
     }
@@ -62,11 +63,38 @@ internal class WeScene(private val pack: WePack, private val texts: WeTexts?, pr
     private lateinit var sceneBuf: Tex
     private var copyProg = 0; private var blitProg = 0
     private var full = 0; private var unit = 0
-    private var time = 0f
+    private var time = 0f; private var lastT = 0f
     private val audio = HashMap<Int, Array<FloatArray>>().apply { for (n in intArrayOf(16, 32, 64)) put(n, arrayOf(FloatArray(n), FloatArray(n))) }
 
     // ---------- 小工具 ----------
-    private fun unwrap(v: Any?): Any? = if (v is JSONObject && v.has("value")) v.opt("value") else if (v == JSONObject.NULL) null else v
+    /**
+     * 场景里的值可能绑在壁纸的用户属性上（project.json 的 general.properties）：
+     * {"user":"名字","value":默认} → 取这个属性现在的值；{"user":{"name":"名字","condition":"值"},"value":…} → 属性等于这个值时为真（常用来切换图层显示）。
+     */
+    private var props = JSONObject()
+    private fun unwrap(v: Any?): Any? {
+        if (v is JSONObject) {
+            if (v.has("user")) {
+                val u = v.opt("user"); val nm = if (u is JSONObject) u.optString("name") else u?.toString()
+                val p = nm?.let { props.optJSONObject(it) }
+                if (p == null || !p.has("value")) return v.opt("value").takeIf { it != JSONObject.NULL }
+                if (u is JSONObject && u.has("condition")) return p.opt("value")?.toString() == u.opt("condition")?.toString()
+                return p.opt("value")
+            }
+            if (v.has("value")) return v.opt("value").takeIf { it != JSONObject.NULL }
+        }
+        return if (v == JSONObject.NULL) null else v
+    }
+    /** 材质的 usershadervalues：两种写法都见过，{属性名: 参数名}（shimmering_particles）和 {参数名: 属性名} */
+    private fun userValues(base: JSONObject?, map: JSONObject?): JSONObject {
+        val out = JSONObject(); base?.let { for (k in it.keys()) out.put(k, it.opt(k)) }
+        if (map != null) for (k in map.keys()) {
+            val v = map.optString(k)
+            val pk = props.optJSONObject(k); val pv = props.optJSONObject(v)
+            if (pk != null && pk.has("value")) out.put(v, pk.opt("value")) else if (pv != null && pv.has("value")) out.put(k, pv.opt("value"))
+        }
+        return out
+    }
     private fun nums(v0: Any?): FloatArray? {
         val v = unwrap(v0)
         return when (v) {
@@ -190,11 +218,188 @@ internal class WeScene(private val pack: WePack, private val texts: WeTexts?, pr
         return a[0]
     }
 
+
+    // ---------- 粒子（第 550 版，照网页参考实现 we.js 的 buildParticle / stepParticles / look / drawParticles） ----------
+    // 照官方：CPU 模拟，每个粒子四个顶点交给官方 genericparticle 着色器「无几何着色器」那条路。
+    // 顶点：a_Position 粒子中心；a_TexCoordVec4 = (角上的 uv, 绕 z 旋转, 大小)；a_TexCoordC2 = 绕 x、y 旋转；a_Color；
+    // THICKFORMAT 时 a_TexCoordVec4C1 = (速度, 寿命进度)。坐标是场景像素，y 朝上，相对图层原点。
+    private class Pt {
+        val pos = FloatArray(3); val vel = FloatArray(3); val rot = FloatArray(3); val av = FloatArray(3)
+        var size = 20f; var life = 1f; var age = 0f; val col = floatArrayOf(1f, 1f, 1f); var alpha = 1f
+        val osc = HashMap<Int, FloatArray>()
+    }
+    private class Emit(val e: JSONObject) { var acc = 0f; var done = false }
+    private class Ps(
+        val prog: Prog, val tex: Array<Tex?>, val values: JSONObject, val blend: String, val max: Int,
+        val em: List<Emit>, val init: List<JSONObject>, val ops: List<JSONObject>, val trail: JSONObject?,
+        val rateMul: Float, val lifeMul: Float, val sizeMul: Float, val speedMul: Float, val alphaMul: Float, val colorMul: FloatArray,
+        val loc: IntArray,
+    ) { val list = ArrayList<Pt>(); var vao = 0; var vbo = 0; var ibo = 0; var cap = 0; var buf: java.nio.FloatBuffer? = null }
+
+    private val rnd = java.util.Random()
+    private fun rr(a: Float, b: Float) = a + rnd.nextFloat() * (b - a)
+    private fun v3(x: Any?, d: FloatArray): FloatArray { val n = nums(x) ?: return d.copyOf(); return floatArrayOf(n[0], n.getOrElse(1) { n[0] }, n.getOrElse(2) { if (n.size == 1) n[0] else d[2] }) }
+    private fun arr(o: JSONObject, k: String): List<JSONObject> { val a = o.optJSONArray(k) ?: return emptyList(); return (0 until a.length()).mapNotNull { a.optJSONObject(it) } }
+
+    private fun buildParticle(o: JSONObject, l: Layer) {
+        val def = json(unwrap(o.opt("particle")) as String)
+        val mp = json(def.getString("material")).getJSONArray("passes").getJSONObject(0)
+        val io = o.optJSONObject("instanceoverride") ?: JSONObject()
+        fun ov(k: String) = num(io.opt(k), 1f)
+        val names = ArrayList<String?>(); mp.optJSONArray("textures")?.let { ta -> for (k in 0 until ta.length()) names += (ta.opt(k) as? String)?.takeIf { it.isNotEmpty() } }
+        val trail = arr(def, "renderer").firstOrNull { it.optString("name") == "spritetrail" || it.optString("name") == "ropetrail" }
+        val combos = JSONObject(); mp.optJSONObject("combos")?.let { for (c in it.keys()) combos.put(c, it.opt(c)) }
+        if (trail != null) { combos.put("TRAILRENDERER", 1); combos.put("THICKFORMAT", 1) }
+        val given = BooleanArray(8); names.forEachIndexed { k, n -> if (n != null && k < 8) given[k] = true }; given[0] = true
+        val prog = program(mp.optString("shader").ifEmpty { "genericparticle" }, combos, given)
+        val loc = listOf("a_Position", "a_TexCoordVec4", "a_TexCoordC2", "a_Color", "a_TexCoordVec4C1").map { GLES30.glGetAttribLocation(prog.p, it) }.toIntArray()
+        val tex = arrayOfNulls<Tex>(8); names.forEachIndexed { k, n -> if (n != null && k < 8) tex[k] = byName(n) }
+        val colorMul = when { io.has("color") -> v3(io.opt("color"), floatArrayOf(1f, 1f, 1f)); io.has("colorn") -> v3(io.opt("colorn"), floatArrayOf(1f, 1f, 1f)); else -> floatArrayOf(1f, 1f, 1f) }
+        val ps = Ps(prog, tex, userValues(mp.optJSONObject("constantshadervalues"), mp.optJSONObject("usershadervalues")), mp.optString("blending").ifEmpty { "translucent" },
+            max(1, (def.optDouble("maxcount", 100.0) * ov("count")).roundToInt()), arr(def, "emitter").map { Emit(it) }, arr(def, "initializer"), arr(def, "operator"), trail,
+            ov("rate") * ov("count"), ov("lifetime"), ov("size"), ov("speed"), ov("alpha"), colorMul, loc)
+        val unknown = (ps.em.map { it.e.optString("name") } + ps.init.map { it.optString("name") } + ps.ops.map { it.optString("name") }).filter { it !in PARTS }.toSet()
+        val name = o.optString("name").ifEmpty { l.id }
+        if (unknown.isNotEmpty()) skipped += "$name：粒子里还没做的：" + unknown.joinToString("、")
+        if ((def.optJSONArray("children")?.length() ?: 0) > 0) skipped += "$name：子粒子（还没做）"
+        l.kind = "particle"; l.ps = ps
+        var t = 0f; val warm = min(10f, def.optDouble("starttime", 0.0).toFloat()) // 起始时间：先空跑这么久，一打开就是满的
+        while (t < warm) { stepParticles(ps, 1f / 30); t += 1f / 30 }
+    }
+
+    private fun spawn(ps: Ps, e: JSONObject) {
+        val p = Pt()
+        val org = v3(e.opt("origin"), floatArrayOf(0f, 0f, 0f))
+        if (e.optString("name") == "boxrandom") {
+            val mn = v3(e.opt("distancemin"), floatArrayOf(0f, 0f, 0f)); val mx = v3(e.opt("distancemax"), floatArrayOf(256f, 256f, 256f))
+            for (k in 0..2) p.pos[k] = org[k] + rr(mn[k], mx[k]) * (if (rnd.nextBoolean()) -1 else 1)
+        } else { // sphererandom：随机方向 × 随机距离，再按 directions 各轴缩放
+            var dx: Float; var dy: Float; var dz: Float; var l2: Float
+            do { dx = rr(-1f, 1f); dy = rr(-1f, 1f); dz = rr(-1f, 1f); l2 = dx * dx + dy * dy + dz * dz } while (l2 > 1f || l2 < 1e-6f)
+            val l = kotlin.math.sqrt(l2); val dir = v3(e.opt("directions"), floatArrayOf(1f, 1f, 0f))
+            val d = floatArrayOf(dx / l * dir[0], dy / l * dir[1], dz / l * dir[2])
+            val r = rr(num(e.opt("distancemin"), 0f), num(e.opt("distancemax"), 256f))
+            val sp = rr(num(e.opt("speedmin"), 0f), num(e.opt("speedmax"), 0f))
+            for (k in 0..2) { p.pos[k] = org[k] + d[k] * r; p.vel[k] = d[k] * sp }
+        }
+        for (i in ps.init) {
+            val mn = i.opt("min"); val mx = i.opt("max")
+            when (i.optString("name")) {
+                "lifetimerandom" -> p.life = rr(num(mn, 1f), num(mx, 1f))
+                "sizerandom" -> p.size = rr(num(mn, 20f), num(mx, 20f))
+                "alpharandom" -> p.alpha = rr(num(mn, 1f), num(mx, 1f))
+                "velocityrandom" -> { val a = v3(mn, floatArrayOf(-32f, -32f, 0f)); val b = v3(mx, floatArrayOf(32f, 32f, 0f)); for (k in 0..2) p.vel[k] += rr(a[k], b[k]) }
+                "colorrandom" -> { val a = v3(mn, floatArrayOf(0f, 0f, 0f)); val b = v3(mx, floatArrayOf(255f, 255f, 255f)); for (k in 0..2) p.col[k] = rr(a[k], b[k]) / 255f } // 没写范围时官方是 0–255 随机
+                "rotationrandom" -> { val a = v3(mn, floatArrayOf(0f, 0f, 0f)); val b = v3(mx, floatArrayOf(0f, 0f, 6.2832f)); for (k in 0..2) p.rot[k] = rr(a[k], b[k]) }
+                "angularvelocityrandom" -> { val a = v3(mn, floatArrayOf(0f, 0f, -5f)); val b = v3(mx, floatArrayOf(0f, 0f, 5f)); for (k in 0..2) p.av[k] = rr(a[k], b[k]) }
+            }
+        }
+        p.life *= ps.lifeMul; p.size *= ps.sizeMul; for (k in 0..2) p.vel[k] *= ps.speedMul
+        ps.ops.forEachIndexed { k, o -> // 每个振荡运算一组自己的频率、幅度、相位
+            if (o.optString("name").startsWith("oscillate")) p.osc[k] = floatArrayOf(
+                rr(num(o.opt("frequencymin"), 0f), num(o.opt("frequencymax"), num(o.opt("frequencymin"), 1f))), rr(num(o.opt("scalemin"), 0f), num(o.opt("scalemax"), 1f)),
+                rr(num(o.opt("phasemin"), 0f), num(o.opt("phasemax"), 6.2832f)), rr(0f, 6.2832f), rr(0f, 6.2832f))
+        }
+        ps.list += p
+    }
+
+    private fun stepParticles(ps: Ps, dt: Float) {
+        for (x in ps.em) {
+            val e = x.e; val inst = e.optInt("instantaneous", 0)
+            if (inst > 0) { if (!x.done) { x.done = true; var k = 0; while (k < inst && ps.list.size < ps.max) { spawn(ps, e); k++ } }; continue }
+            x.acc += num(e.opt("rate"), 5f) * ps.rateMul * dt
+            while (x.acc >= 1f) { x.acc -= 1f; if (ps.list.size < ps.max) spawn(ps, e) }
+        }
+        for (p in ps.list) {
+            p.age += dt
+            for (o in ps.ops) when (o.optString("name")) {
+                "movement" -> { val g = v3(o.opt("gravity"), floatArrayOf(0f, 0f, 0f)); val dr = num(o.opt("drag"), 0f); for (k in 0..2) { p.vel[k] += g[k] * dt; p.vel[k] -= p.vel[k] * dr * dt; p.pos[k] += p.vel[k] * dt } }
+                "angularmovement" -> { val f = v3(o.opt("force"), floatArrayOf(0f, 0f, 0f)); val dr = num(o.opt("drag"), 0f); for (k in 0..2) { p.av[k] += f[k] * dt; p.av[k] -= p.av[k] * dr * dt; p.rot[k] += p.av[k] * dt } }
+            }
+        }
+        ps.list.removeAll { it.age >= it.life }
+    }
+
+    /** 这一刻的透明度、大小、颜色、位置偏移：寿命进度相关的运算每帧从初值算，不累积。返回 a, s, r, g, b, ox, oy, oz, t */
+    private fun look(ps: Ps, p: Pt, out: FloatArray) {
+        val t = min(1f, p.age / p.life); var a = p.alpha * ps.alphaMul; var s = p.size
+        var r = p.col[0]; var g = p.col[1]; var b = p.col[2]; var ox = 0f; var oy = 0f; var oz = 0f
+        ps.ops.forEachIndexed { k, o ->
+            val q = p.osc[k]
+            fun ramp(d0: Float, d1: Float): Float { val st = num(o.opt("starttime"), 0f); val et = num(o.opt("endtime"), 1f); val f = ((t - st) / max(1e-4f, et - st)).coerceIn(0f, 1f); val x0 = num(o.opt("startvalue"), d0); return x0 + (num(o.opt("endvalue"), d1) - x0) * f }
+            when (o.optString("name")) {
+                "alphafade" -> { val fi = num(o.opt("fadeintime"), .5f); val fo = num(o.opt("fadeouttime"), .5f); if (t < fi) a *= t / fi; if (t > 1 - fo) a *= max(0f, (1 - t) / fo) }
+                "sizechange" -> s *= ramp(1f, 0f)
+                "alphachange" -> a *= ramp(1f, 0f)
+                "colorchange" -> { val st = num(o.opt("starttime"), 0f); val et = num(o.opt("endtime"), 1f); val f = ((t - st) / max(1e-4f, et - st)).coerceIn(0f, 1f)
+                    val c0 = v3(o.opt("startvalue"), floatArrayOf(1f, 1f, 1f)); val c1 = v3(o.opt("endvalue"), floatArrayOf(1f, 1f, 1f))
+                    r *= c0[0] + (c1[0] - c0[0]) * f; g *= c0[1] + (c1[1] - c0[1]) * f; b *= c0[2] + (c1[2] - c0[2]) * f }
+                "oscillatealpha" -> if (q != null) a *= 1 - q[1] * (.5f + .5f * sin(6.2832f * q[0] * p.age + q[2]))
+                "oscillatesize" -> if (q != null) s *= 1 - q[1] * (.5f + .5f * sin(6.2832f * q[0] * p.age + q[2]))
+                "oscillateposition" -> if (q != null) { val m = v3(o.opt("mask"), floatArrayOf(1f, 1f, 0f))
+                    ox += m[0] * q[1] * sin(6.2832f * q[0] * p.age + q[2]); oy += m[1] * q[1] * sin(6.2832f * q[0] * p.age + q[3]); oz += m[2] * q[1] * sin(6.2832f * q[0] * p.age + q[4]) }
+            }
+        }
+        out[0] = a.coerceIn(0f, 1f); out[1] = s; out[2] = r * ps.colorMul[0]; out[3] = g * ps.colorMul[1]; out[4] = b * ps.colorMul[2]; out[5] = ox; out[6] = oy; out[7] = oz; out[8] = t
+    }
+
+    private val corner = floatArrayOf(0f, 0f, 1f, 0f, 0f, 1f, 1f, 1f)
+    private val lookOut = FloatArray(9)
+    private fun drawParticles(l: Layer, dt: Float) {
+        val ps = l.ps ?: return
+        stepParticles(ps, dt)
+        val n = ps.list.size; if (n == 0) return
+        val F = 17
+        if (ps.cap < n) { // 顶点和索引缓冲按上限建一次：每个粒子 4 个顶点、两个三角形
+            ps.cap = max(n, ps.max)
+            val ids = IntArray(3); GLES30.glGenVertexArrays(1, ids, 0); GLES30.glGenBuffers(2, ids, 1)
+            if (ps.vao != 0) { GLES30.glDeleteVertexArrays(1, intArrayOf(ps.vao), 0); GLES30.glDeleteBuffers(2, intArrayOf(ps.vbo, ps.ibo), 0) }
+            ps.vao = ids[0]; ps.vbo = ids[1]; ps.ibo = ids[2]
+            GLES30.glBindVertexArray(ps.vao)
+            ps.buf = ByteBuffer.allocateDirect(ps.cap * 4 * F * 4).order(ByteOrder.nativeOrder()).asFloatBuffer()
+            GLES30.glBindBuffer(GLES30.GL_ARRAY_BUFFER, ps.vbo); GLES30.glBufferData(GLES30.GL_ARRAY_BUFFER, ps.cap * 4 * F * 4, null, GLES30.GL_DYNAMIC_DRAW)
+            val idx = ByteBuffer.allocateDirect(ps.cap * 6 * 4).order(ByteOrder.nativeOrder()).asIntBuffer()
+            for (q in 0 until ps.cap) { val b = q * 4; idx.put(b).put(b + 1).put(b + 2).put(b + 2).put(b + 1).put(b + 3) }
+            idx.position(0)
+            GLES30.glBindBuffer(GLES30.GL_ELEMENT_ARRAY_BUFFER, ps.ibo); GLES30.glBufferData(GLES30.GL_ELEMENT_ARRAY_BUFFER, ps.cap * 6 * 4, idx, GLES30.GL_STATIC_DRAW)
+            val sizes = intArrayOf(3, 4, 2, 4, 4); val offs = intArrayOf(0, 3, 7, 9, 13)
+            for (k in 0..4) { val lc = ps.loc[k]; if (lc < 0) continue; GLES30.glEnableVertexAttribArray(lc); GLES30.glVertexAttribPointer(lc, sizes[k], GLES30.GL_FLOAT, false, F * 4, offs[k] * 4) }
+        }
+        val fb = ps.buf!!; fb.position(0)
+        for (p in ps.list) {
+            look(ps, p, lookOut); val o = lookOut
+            for (v in 0..3) {
+                fb.put(p.pos[0] + o[5]).put(p.pos[1] + o[6]).put(p.pos[2] + o[7])
+                fb.put(corner[v * 2]).put(corner[v * 2 + 1]).put(p.rot[2]).put(o[1])
+                fb.put(p.rot[0]).put(p.rot[1])
+                fb.put(o[2]).put(o[3]).put(o[4]).put(o[0])
+                fb.put(p.vel[0]).put(p.vel[1]).put(p.vel[2]).put(o[8])
+            }
+        }
+        fb.position(0)
+        GLES30.glBindVertexArray(ps.vao)
+        GLES30.glBindBuffer(GLES30.GL_ARRAY_BUFFER, ps.vbo); GLES30.glBufferSubData(GLES30.GL_ARRAY_BUFFER, 0, n * 4 * F * 4, fb)
+        into(sceneBuf); GLES30.glEnable(GLES30.GL_BLEND)
+        if (ps.blend == "additive") GLES30.glBlendFuncSeparate(GLES30.GL_SRC_ALPHA, GLES30.GL_ONE, GLES30.GL_ZERO, GLES30.GL_ONE)
+        else GLES30.glBlendFuncSeparate(GLES30.GL_SRC_ALPHA, GLES30.GL_ONE_MINUS_SRC_ALPHA, GLES30.GL_ONE, GLES30.GL_ONE_MINUS_SRC_ALPHA)
+        val c = cos(l.angle); val s = sin(l.angle); val sx = l.scale[0]; val sy = l.scale[1]
+        val mvp = floatArrayOf(c * sx * 2 / W, s * sx * 2 / H, 0f, 0f, -s * sy * 2 / W, c * sy * 2 / H, 0f, 0f, 0f, 0f, 0f, 0f, l.origin[0] * 2 / W - 1, l.origin[1] * 2 / H - 1, 0f, 1f)
+        val tr = ps.trail
+        bind(ps.prog, Ctx(ps.tex, values = ps.values, mvp = mvp, extra = mapOf(
+            "g_OrientationRight" to floatArrayOf(1f, 0f, 0f), "g_OrientationUp" to floatArrayOf(0f, 1f, 0f), "g_OrientationForward" to floatArrayOf(0f, 0f, 1f),
+            "g_ViewRight" to floatArrayOf(1f, 0f, 0f), "g_ViewUp" to floatArrayOf(0f, 1f, 0f), "g_EyePosition" to floatArrayOf(0f, 0f, 1e5f),
+            "g_RenderVar0" to floatArrayOf(num(tr?.opt("length"), .05f), num(tr?.opt("maxlength"), 10f), num(tr?.opt("minlength"), 0f), 0f),
+            "g_RenderVar1" to floatArrayOf(1f, 1f, 1f, 1f))))
+        GLES30.glDrawElements(GLES30.GL_TRIANGLES, n * 6, GLES30.GL_UNSIGNED_INT, 0)
+        GLES30.glBindVertexArray(0)
+    }
+
     // ---------- 读场景 ----------
     /** [surfaceH]：屏幕高（像素）。场景缓冲的高度跟屏幕走，540–1080 之间（高刷大屏全分辨率跑模糊太费电）。 */
     fun load(surfaceH: Int) {
         // 场景文件名在 project.json 的 file 里，不一定叫 scene.json（官方示例 fantasticcar.json、techno.json）
         val pj = runCatching { JSONObject(pack.text("project.json") ?: "{}") }.getOrDefault(JSONObject())
+        props = pj.optJSONObject("general")?.optJSONObject("properties") ?: JSONObject()
         val scene = json(pj.optString("file").takeIf { it.endsWith(".json", true) } ?: "scene.json")
         val general = scene.optJSONObject("general") ?: JSONObject()
         val ortho = general.optJSONObject("orthogonalprojection")
@@ -252,7 +457,7 @@ internal class WeScene(private val pack: WePack, private val texts: WeTexts?, pr
                     val shader = mp.optString("shader").ifEmpty { "genericimage2" }
                     if (rt || !GENERIC.matches(shader)) { // 要拿整帧画面的，也走这条
                         val given = BooleanArray(8); names.forEachIndexed { k, n -> if (n != null && k < 8) given[k] = true }; given[0] = true
-                        l.base = Pass(program(shader, mp.optJSONObject("combos") ?: JSONObject(), given), mp.optJSONObject("constantshadervalues") ?: JSONObject(), names, emptyList(), null)
+                        l.base = Pass(program(shader, mp.optJSONObject("combos") ?: JSONObject(), given), userValues(mp.optJSONObject("constantshadervalues"), mp.optJSONObject("usershadervalues")), names, emptyList(), null)
                     }
                     if (model.has("width") && model.has("height")) msize = floatArrayOf(model.optDouble("width").toFloat(), model.optDouble("height").toFloat())
                     if (model.has("puppet")) skipped += (o.optString("name").ifEmpty { l.id }) + "：骨骼动画（还没做，先画静态图）"
@@ -271,8 +476,10 @@ internal class WeScene(private val pack: WePack, private val texts: WeTexts?, pr
             l.tex = mkTex(1, 1, byteArrayOf(0, 0, 0, 0))
             val script = tj?.optString("script").orEmpty()
             if (script.isNotEmpty()) texts?.register(l.id, script, (tj?.optJSONObject("scriptproperties") ?: JSONObject()).toString(), l.fixed)
+        } else if (o.has("particle")) {
+            buildParticle(o, l); return l
         } else {
-            val what = when { o.has("particle") -> "粒子"; o.has("model") -> "3D 模型"; o.has("light") -> "灯光"; else -> null }
+            val what = when { o.has("model") -> "3D 模型"; o.has("light") -> "灯光"; else -> null }
             if (what != null) skipped += (o.optString("name").ifEmpty { l.id }) + "：$what（还没做）"
             return null
         }
@@ -306,7 +513,8 @@ internal class WeScene(private val pack: WePack, private val texts: WeTexts?, pr
                 inst.optJSONObject("constantshadervalues")?.let { for (c in it.keys()) values.put(c, it.opt(c)) }
                 val prog = program(mp.getString("shader"), combos, given)
                 if (prog.us.any { it.name.startsWith("g_AudioSpectrum") }) wantsAudio = true
-                passes += Pass(prog, values, names, binds, dp.optString("target").ifEmpty { null })
+                val um = JSONObject(); mp.optJSONObject("usershadervalues")?.let { for (c in it.keys()) um.put(c, it.opt(c)) }; inst.optJSONObject("usershadervalues")?.let { for (c in it.keys()) um.put(c, it.opt(c)) }
+                passes += Pass(prog, userValues(values, um), names, binds, dp.optString("target").ifEmpty { null })
             }
             l.fx += Fx(fbos, passes)
     }
@@ -325,6 +533,7 @@ internal class WeScene(private val pack: WePack, private val texts: WeTexts?, pr
             val res = SLOT_RES.matchEntire(n)
             if (res != null) { val t = c.tex.getOrNull(res.groupValues[1].toInt()) ?: white; GLES30.glUniform4f(u.loc, t.w.toFloat(), t.h.toFloat(), t.iw.toFloat(), t.ih.toFloat()); continue }
             if (n == "g_ModelViewProjectionMatrix") { GLES30.glUniformMatrix4fv(u.loc, 1, false, c.mvp ?: IDENTITY, 0); continue }
+            if (u.type == GLES30.GL_FLOAT_MAT4) { GLES30.glUniformMatrix4fv(u.loc, 1, false, IDENTITY, 0); continue }
             if (n == "g_Time") { GLES30.glUniform1f(u.loc, time); continue }
             val au = AUDIO.matchEntire(n)
             if (au != null) { val arr = audio[au.groupValues[1].toInt()]!![if (au.groupValues[2] == "Left") 0 else 1]; GLES30.glUniform1fv(u.loc, arr.size, arr, 0); continue }
@@ -425,6 +634,7 @@ internal class WeScene(private val pack: WePack, private val texts: WeTexts?, pr
     }
     private fun drawLayer(l: Layer) {
         if (unwrap(l.o.opt("visible")) == false) return
+        if (l.kind == "particle") { drawParticles(l, (time - lastT).coerceIn(0f, .1f)); return }
         if (l.kind == "text") drawText(l)
         if (l.fx.isEmpty() && l.kind != "compose" && l.base == null) { toScene(l, l.tex!!); return }
         val bw = l.size[0] * q; val bh = l.size[1] * q
@@ -453,7 +663,7 @@ internal class WeScene(private val pack: WePack, private val texts: WeTexts?, pr
      * [bands] 64 段频谱（0–1），没有就传 null。
      */
     fun frame(t: Float, sw: Int, sh: Int, view: FloatArray, bands: FloatArray?) {
-        time = t; frameNo++
+        lastT = time; time = t; frameNo++
         val a64 = audio[64]!!
         for (c in 0..1) for (i in 0 until 64) { val target = bands?.getOrNull(i) ?: 0f; a64[c][i] += (target.coerceIn(0f, 1f) - a64[c][i]) * .35f }
         for (n in intArrayOf(32, 16)) { val k = 64 / n; val an = audio[n]!!; for (c in 0..1) for (i in 0 until n) { var s = 0f; for (j in 0 until k) s += a64[c][i * k + j]; an[c][i] = s / k } }
@@ -464,10 +674,18 @@ internal class WeScene(private val pack: WePack, private val texts: WeTexts?, pr
             try { drawLayer(l) } catch (e: Throwable) { l.bad = true; skipped += l.o.optString("name").ifEmpty { l.id } + "：" + why(e) }
         }
         GLES30.glBindFramebuffer(GLES30.GL_FRAMEBUFFER, 0); GLES30.glViewport(0, 0, sw, sh); GLES30.glDisable(GLES30.GL_BLEND)
-        val r = rect(view, sw.toFloat() / max(1, sh), aspect)
+        // view：缩放、中心 x、中心 y、旋转、翻转、对齐（0 覆盖 1 填充 2 自由）、背景色 r g b
+        val ca = sw.toFloat() / max(1, sh); val align = view.getOrElse(5) { 0f }.toInt()
+        val r = if (align == 1) floatArrayOf(0f, 0f, 1f, 1f) else rect(view, ca, aspect)
         GLES30.glUseProgram(blitProg); GLES30.glActiveTexture(GLES30.GL_TEXTURE0); GLES30.glBindTexture(GLES30.GL_TEXTURE_2D, sceneBuf.id)
-        GLES30.glUniform1i(GLES30.glGetUniformLocation(blitProg, "s"), 0)
-        GLES30.glUniform4f(GLES30.glGetUniformLocation(blitProg, "rect"), r[0], 1f - r[1] - r[3], r[2], r[3]) // 缓冲里 y 朝上
+        fun u(n: String) = GLES30.glGetUniformLocation(blitProg, n)
+        GLES30.glUniform1i(u("s"), 0)
+        GLES30.glUniform4f(u("rect"), r[0], 1f - r[1] - r[3], r[2], r[3]) // 缓冲里 y 朝上
+        GLES30.glUniform1i(u("free"), if (align == 2) 1 else 0)
+        GLES30.glUniform2f(u("c"), view.getOrElse(1) { .5f }, 1f - view.getOrElse(2) { .5f })
+        GLES30.glUniform1f(u("z"), view.getOrElse(0) { 1f }); GLES30.glUniform1f(u("rot"), view.getOrElse(3) { 0f })
+        GLES30.glUniform1f(u("ca"), ca); GLES30.glUniform1f(u("sa"), aspect); GLES30.glUniform1f(u("flip"), view.getOrElse(4) { 0f })
+        GLES30.glUniform3f(u("bg"), view.getOrElse(6) { 0f }, view.getOrElse(7) { 0f }, view.getOrElse(8) { 0f })
         GLES30.glBindVertexArray(full); GLES30.glDrawArrays(GLES30.GL_TRIANGLE_STRIP, 0, 4)
     }
 
@@ -480,7 +698,10 @@ internal class WeScene(private val pack: WePack, private val texts: WeTexts?, pr
         private val IDENTITY = floatArrayOf(1f, 0f, 0f, 0f, 0f, 1f, 0f, 0f, 0f, 0f, 1f, 0f, 0f, 0f, 0f, 1f)
         private val INCLUDE = Regex("^[ \\t]*#include\\s+\"([^\"]+)\".*$", RegexOption.MULTILINE)
         private val COMBO = Regex("//\\s*\\[COMBO\\]\\s*(\\{.*\\})")
-        private val UNIFORM = Regex("uniform\\s+(\\w+)\\s+(\\w+)\\s*(?:\\[\\d+\\])?\\s*;\\s*//\\s*(\\{.*\\})")
+        // 作者的着色器会带精度修饰（uniform lowp vec3 …）
+        private val UNIFORM = Regex("uniform\\s+(?:(?:lowp|mediump|highp)\\s+)?(\\w+)\\s+(\\w+)\\s*(?:\\[\\d+\\])?\\s*;\\s*//\\s*(\\{.*\\})")
+        private val PARTS = setOf("sphererandom", "boxrandom", "lifetimerandom", "sizerandom", "velocityrandom", "colorrandom", "alpharandom", "rotationrandom",
+            "angularvelocityrandom", "movement", "angularmovement", "alphafade", "sizechange", "alphachange", "colorchange", "oscillatealpha", "oscillatesize", "oscillateposition", "sprite", "spritetrail")
         private val DEFINE = Regex("#define\\s+(\\w+)")
         private val IFLINE_FULL = Regex("^([ \\t]*#\\s*(?:if|elif)\\b)(.*)$", RegexOption.MULTILINE)
         private val IF_TOKEN = Regex("defined\\s*\\(\\s*\\w+\\s*\\)|defined\\s+\\w+|[A-Za-z_]\\w*")
@@ -633,9 +854,22 @@ void main(){ gl_Position = vec4(a_Position, 1.0); uv = a_TexCoord; }
 precision highp float; uniform sampler2D s; uniform vec2 origin, size, scale, scene; in vec2 uv; out vec4 o;
 void main(){ vec2 p = origin + vec2(uv.x - 0.5, 0.5 - uv.y) * size * scale; o = texture(s, p / scene); }
 """
+        /* 铺到屏幕。free = 0：按 rect 取一块（覆盖 / 填充）；free = 1：自由，任意缩放、平移、旋转，露出的地方是背景色。
+         * 都在 y 朝上的坐标里算；flip 左右镜像。和网页原型 we.js 的 BLIT_F 一样。 */
         private const val BLIT_F = """#version 300 es
-precision highp float; uniform sampler2D s; uniform vec4 rect; in vec2 uv; out vec4 o;
-void main(){ o = vec4(texture(s, rect.xy + uv * rect.zw).rgb, 1.0); }
+precision highp float; uniform sampler2D s; uniform vec4 rect; uniform int free; uniform vec2 c; uniform float z, rot, ca, sa, flip; uniform vec3 bg; in vec2 uv; out vec4 o;
+void main(){
+  vec2 t;
+  if (free == 1) {
+    vec2 p = (uv - 0.5) * vec2(ca, 1.0);
+    float cs = cos(rot), sn = sin(rot);
+    p = vec2(cs * p.x - sn * p.y, sn * p.x + cs * p.y);
+    t = c + p / z * vec2(1.0 / sa, 1.0);
+  } else t = rect.xy + uv * rect.zw;
+  if (flip > 0.5) t.x = 1.0 - t.x;
+  if (t.x < 0.0 || t.x > 1.0 || t.y < 0.0 || t.y > 1.0) { o = vec4(bg, 1.0); return; }
+  o = vec4(texture(s, t).rgb, 1.0);
+}
 """
     }
 }

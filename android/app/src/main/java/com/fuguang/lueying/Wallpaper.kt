@@ -99,6 +99,8 @@ import org.json.JSONArray
 import org.json.JSONObject
 import java.io.File
 import kotlin.math.roundToInt
+import kotlin.math.max
+import androidx.compose.foundation.layout.navigationBarsPadding
 
 /**
  * 壁纸（第 548 版，原型 KNLw65Bt1Q93XKLzgu4JfF）：「我的 → 壁纸」。导入图片、视频、Wallpaper Engine 手机版导出的 .mpkg，
@@ -106,8 +108,13 @@ import kotlin.math.roundToInt
  * 取景（缩放、左右上下）只在壁纸页能动：空白处单指拖、双指捏合；点已选中的那张，界面退开只看壁纸。聊天页固定用调好的构图。
  */
 internal class Wall(val id: String, val name: String, val kind: String, val file: String) {
-    /** 缩放、中心 x、中心 y（占整张画面的比例，左上为原点）。渲染线程直接读。 */
-    val view = floatArrayOf(1f, .5f, .5f)
+    /**
+     * 取景（渲染线程直接读）：缩放、中心 x、中心 y（占整张画面的比例，左上为原点）、旋转（弧度，顺时针）、翻转（0/1）、
+     * 对齐（0 覆盖 1 填充 2 自由，照 Wallpaper Engine 手机版）、背景色 r g b（自由模式露出来的地方）。
+     */
+    val view = floatArrayOf(1f, .5f, .5f, 0f, 0f, 0f, 0f, 0f, 0f)
+    /** 播放速度 */
+    @Volatile var speed = 1f
     @Volatile var aspect = 16f / 9f
     /** 诊断：画得怎么样、哪里出了问题。长按壁纸看，能复制发给 Claude */
     var diag by mutableStateOf("")
@@ -152,8 +159,11 @@ internal object Walls {
                 val o = a.optJSONObject(i) ?: continue
                 val w = Wall(o.optString("id"), o.optString("name"), o.optString("kind"), o.optString("file"))
                 if (w.id.isEmpty() || !w.path.isFile) continue
-                w.view[0] = o.optDouble("zoom", 1.0).toFloat().coerceIn(1f, 4f)
-                w.view[1] = o.optDouble("x", .5).toFloat().coerceIn(0f, 1f); w.view[2] = o.optDouble("y", .5).toFloat().coerceIn(0f, 1f)
+                w.view[0] = o.optDouble("zoom", 1.0).toFloat().coerceIn(.2f, 8f)
+                w.view[1] = o.optDouble("x", .5).toFloat(); w.view[2] = o.optDouble("y", .5).toFloat()
+                w.view[3] = o.optDouble("rot", 0.0).toFloat(); w.view[4] = if (o.optBoolean("flip")) 1f else 0f; w.view[5] = o.optInt("align", 0).coerceIn(0, 2).toFloat()
+                o.optJSONArray("bg")?.let { for (k in 0..2) w.view[6 + k] = it.optDouble(k, 0.0).toFloat() }
+                w.speed = o.optDouble("speed", 1.0).toFloat().coerceIn(.25f, 2f)
                 w.aspect = o.optDouble("aspect", 16.0 / 9).toFloat().coerceIn(.2f, 5f)
                 list += w
             }
@@ -170,7 +180,9 @@ internal object Walls {
     fun save() {
         val a = JSONArray()
         for (w in list) a.put(JSONObject().put("id", w.id).put("name", w.name).put("kind", w.kind).put("file", w.file)
-            .put("zoom", w.view[0].toDouble()).put("x", w.view[1].toDouble()).put("y", w.view[2].toDouble()).put("aspect", w.aspect.toDouble()))
+            .put("zoom", w.view[0].toDouble()).put("x", w.view[1].toDouble()).put("y", w.view[2].toDouble()).put("aspect", w.aspect.toDouble())
+            .put("rot", w.view[3].toDouble()).put("flip", w.view[4] > .5f).put("align", w.view[5].toInt()).put("speed", w.speed.toDouble())
+            .put("bg", JSONArray().put(w.view[6].toDouble()).put(w.view[7].toDouble()).put(w.view[8].toDouble())))
         prefs?.putString(KEY, JSONObject().put("cur", current).put("items", a).toString())
     }
 
@@ -179,17 +191,46 @@ internal object Walls {
         if (!Skin.frost) Skin.set(Skin.FROST) // 别的主题不放背景画面，选了壁纸就换回透明磨砂
     }
 
-    /** 手势：[dx] [dy] 是手指挪过的距离占屏幕的比例，[zoom] 是这一下的倍数 */
-    fun move(dx: Float, dy: Float, zoom: Float) {
+    /**
+     * 手势：[dx] [dy] 是手指挪过的距离占屏幕的比例，[zoom] 是这一下的倍数，[rot] 是这一下转过的弧度（顺时针为正）。
+     * 覆盖：只能在画面里挪、放大 1–4 倍；填充：不动；自由：随便挪、0.2–8 倍、能转，露出背景色（和网页原型一样）。
+     */
+    fun move(dx: Float, dy: Float, zoom: Float, rot: Float = 0f) {
         val w = now() ?: return
         val v = w.view
-        v[0] = (v[0] * zoom).coerceIn(1f, 4f)
-        val r = WeScene.rect(v, ca, w.aspect)
-        v[1] -= dx * r[2]; v[2] -= dy * r[3]
-        val k = WeScene.rect(v, ca, w.aspect) // 夹回画面内，下次从边上往回拖马上有反应
-        v[1] = k[0] + k[2] / 2; v[2] = k[1] + k[3] / 2
+        when (v[5].toInt()) {
+            1 -> return
+            2 -> {
+                v[0] = (v[0] * zoom).coerceIn(.2f, 8f); v[3] += rot
+                // 手指挪多少画面跟着挪多少：先转回画面自己的方向，再按缩放换算（屏幕高为 1）
+                val px = dx * ca; val py = -dy; val cs = kotlin.math.cos(v[3]); val sn = kotlin.math.sin(v[3])
+                v[1] -= (cs * px - sn * py) / v[0] / w.aspect; v[2] += (sn * px + cs * py) / v[0]
+            }
+            else -> {
+                v[0] = (v[0] * zoom).coerceIn(1f, 4f)
+                val r = WeScene.rect(v, ca, w.aspect)
+                v[1] -= dx * r[2]; v[2] -= dy * r[3]
+                clamp(w)
+            }
+        }
         tick++
     }
+    /** 覆盖模式：中心夹回画面内，下次从边上往回拖马上有反应 */
+    private fun clamp(w: Wall) { val v = w.view; val k = WeScene.rect(v, ca, w.aspect); v[1] = k[0] + k[2] / 2; v[2] = k[1] + k[3] / 2 }
+
+    /** 换对齐方式：从覆盖进自由时画面停在原样不跳 */
+    fun align(a: Int) {
+        val w = now() ?: return; val v = w.view; val from = v[5].toInt(); if (from == a) return
+        val k = max(1f, ca / w.aspect)
+        if (a == 2 && from == 0) { v[0] *= k; v[3] = 0f }
+        else if (from == 2) { v[0] = (v[0] / k).coerceIn(1f, 4f); v[3] = 0f }
+        v[5] = a.toFloat(); if (a == 0) clamp(w)
+        tick++; save()
+    }
+    fun flip() { val w = now() ?: return; w.view[4] = if (w.view[4] > .5f) 0f else 1f; tick++; save() }
+    fun speed(s: Float) { val w = now() ?: return; w.speed = s; tick++ }
+    fun bg(c: Int) { val w = now() ?: return; w.view[6] = (c shr 16 and 255) / 255f; w.view[7] = (c shr 8 and 255) / 255f; w.view[8] = (c and 255) / 255f; tick++; save() }
+    fun reset() { val w = now() ?: return; floatArrayOf(1f, .5f, .5f, 0f, 0f, 0f, 0f, 0f, 0f).copyInto(w.view); w.speed = 1f; tick++; save() }
 
     fun remove(w: Wall) {
         val i = list.indexOf(w); if (i < 0) return
@@ -312,6 +353,7 @@ private class WeHost(ctx: Context, private val wall: Wall, private val onReady: 
     private var audio = false
     private var closed = false
     private val view = { wall.view }
+    private val speed = { wall.speed }
     private val bands = { viz.bands() }
 
     var playing = true
@@ -326,7 +368,7 @@ private class WeHost(ctx: Context, private val wall: Wall, private val onReady: 
         stop()
         val engine = WeEngine.apk(app)
         val engInfo = if (engine != null) "官方素材：已读到（Wallpaper Engine ${WeEngine.version(app) ?: ""}）" else "官方素材：没装官方 Wallpaper Engine，用自带替身"
-        val t = WeThread(st, w, h, wall.path, engine, scripts, view, bands) { ok, err, skipped, au, aspect, info0 ->
+        val t = WeThread(st, w, h, wall.path, engine, scripts, view, bands, speed) { ok, err, skipped, au, aspect, info0 ->
             val info = info0 + "\n" + engInfo
             main.post {
                 if (closed) return@post
@@ -367,12 +409,29 @@ private fun SceneWall(w: Wall, playing: Boolean) {
     }
 }
 
-/** 按取景框把内容放大、挪位（超出的部分由外面裁掉） */
+/** 按取景框把图片、视频放大、挪位、翻转（超出的部分由外面裁掉）；和场景壁纸的 BLIT_F 同一套规则 */
 @Composable
 private fun Framed(w: Wall, bw: Dp, bh: Dp, sa: Float, content: @Composable () -> Unit) {
-    val r = remember(Walls.tick, bw, bh, sa) { WeScene.rect(w.view, bw.value / bh.value.coerceAtLeast(1f), sa) }
-    val cw = bw / r[2]; val ch = bh / r[3]
-    WallPlaced(-cw * r[0], -ch * r[1], cw, ch, content)
+    @Suppress("UNUSED_EXPRESSION") Walls.tick // 取景变了就重排
+    val v = w.view
+    val flip = Modifier.graphicsLayer { scaleX = if (v[4] > .5f) -1f else 1f }
+    when (v[5].toInt()) {
+        1 -> Box(Modifier.fillMaxSize().then(flip)) { content() }
+        2 -> {
+            // 自由：缩放 1 时画面高 = 屏幕高；屏幕中心对着画面上的 (x, y)；绕这一点转；露出来的地方是背景色
+            val ch = bh * v[0]; val cw = ch * sa
+            Box(Modifier.fillMaxSize().background(Color(v[6], v[7], v[8]))) {
+                Box(Modifier.fillMaxSize().graphicsLayer { rotationZ = Math.toDegrees(v[3].toDouble()).toFloat(); transformOrigin = androidx.compose.ui.graphics.TransformOrigin.Center }) {
+                    WallPlaced(bw / 2 - cw * v[1], bh / 2 - ch * v[2], cw, ch) { Box(Modifier.fillMaxSize().then(flip)) { content() } }
+                }
+            }
+        }
+        else -> {
+            val r = WeScene.rect(v, bw.value / bh.value.coerceAtLeast(1f), sa)
+            val cw = bw / r[2]; val ch = bh / r[3]
+            WallPlaced(-cw * r[0], -ch * r[1], cw, ch) { Box(Modifier.fillMaxSize().then(flip)) { content() } }
+        }
+    }
 }
 
 @Composable
@@ -462,7 +521,9 @@ internal fun WallpaperPage(onBack: () -> Unit) {
         onDispose { Walls.clear = false; Walls.peek = false; Walls.undo = null; Walls.save(); if (!Skin.wholeCards) MineCard.full = wasFull }
     }
     LaunchedEffect(Skin.id) { Walls.clear = Skin.frost }
-    BackHandler(Walls.peek) { Walls.peek = false }
+    var tune by remember { mutableStateOf(false) }
+    LaunchedEffect(Walls.peek) { if (!Walls.peek) tune = false }
+    BackHandler(Walls.peek) { if (tune) tune = false else Walls.peek = false }
 
     val ui by animateFloatAsState(if (Walls.peek) 0f else 1f, tween(if (Walls.peek) 460 else 260, easing = Curves.standard), label = "wallUi")
     val poster = rememberPoster()
@@ -470,8 +531,8 @@ internal fun WallpaperPage(onBack: () -> Unit) {
         // 空白处：单指拖动移画面，双指捏合放大缩小；只看壁纸时轻点一下回到界面
         Box(
             Modifier.fillMaxSize()
-                .pointerInput(Unit) { detectTapGestures { if (Walls.peek) Walls.peek = false } }
-                .pointerInput(Unit) { detectTransformGestures { _, pan, zoom, _ -> Walls.move(pan.x / size.width.coerceAtLeast(1), pan.y / size.height.coerceAtLeast(1), zoom) } },
+                .pointerInput(Unit) { detectTapGestures { if (tune) tune = false else if (Walls.peek) Walls.peek = false } }
+                .pointerInput(Unit) { detectTransformGestures { _, pan, zoom, rot -> Walls.move(pan.x / size.width.coerceAtLeast(1), pan.y / size.height.coerceAtLeast(1), zoom, Math.toRadians(rot.toDouble()).toFloat()) } },
         )
         if (ui > 0f) Column(Modifier.align(Alignment.TopCenter).widthIn(max = 560.dp).fillMaxWidth().graphicsLayer { alpha = ui }) {
             Row(Modifier.fillMaxWidth().padding(end = if (Skin.wholeCards) 0.dp else 44.dp, bottom = 12.dp), verticalAlignment = Alignment.CenterVertically) {
@@ -513,6 +574,90 @@ internal fun WallpaperPage(onBack: () -> Unit) {
             Spacer(Modifier.size(12.dp))
         }
         WallUndoBar(Modifier.align(Alignment.BottomCenter).padding(bottom = 12.dp))
+        // 只看壁纸时底部的把手：点或上拉展开壁纸设置（照 Wallpaper Engine 手机版的「常规」）
+        Walls.now()?.let { w -> if (Walls.peek) WallTune(w, tune, Modifier.align(Alignment.BottomCenter)) { tune = it } }
+    }
+}
+
+/** 滑条：点哪儿到哪儿，按住拖；松手回调一次 */
+@Composable
+private fun TuneSlider(value: Float, from: Float, to: Float, modifier: Modifier, onChange: (Float) -> Unit, onDone: () -> Unit) {
+    val change by rememberUpdatedState(onChange); val done by rememberUpdatedState(onDone)
+    BoxWithConstraints(modifier.size(30.dp).pointerInput(from, to) {
+        fun at(x: Float) = (from + (x / size.width.coerceAtLeast(1)).coerceIn(0f, 1f) * (to - from))
+        detectTapGestures(onPress = { o -> change(at(o.x)); tryAwaitRelease(); done() })
+    }.pointerInput(from, to) {
+        fun at(x: Float) = (from + (x / size.width.coerceAtLeast(1)).coerceIn(0f, 1f) * (to - from))
+        androidx.compose.foundation.gestures.detectHorizontalDragGestures(onDragEnd = { done() }) { ch, _ -> change(at(ch.position.x)) }
+    }, contentAlignment = Alignment.CenterStart) {
+        val f = ((value - from) / (to - from)).coerceIn(0f, 1f)
+        Box(Modifier.fillMaxWidth().size(4.dp).background(Color.White.copy(alpha = .16f), RoundedCornerShape(2.dp)))
+        Box(Modifier.width(maxWidth * f).size(4.dp).background(Skin.accent, RoundedCornerShape(2.dp)))
+        Box(Modifier.padding(start = (maxWidth - 18.dp) * f).size(18.dp).background(Skin.accent, CircleShape))
+    }
+}
+
+private val TUNE_BG = intArrayOf(0x000000, 0xFFFFFF, 0x1C1F26, 0x3A2F2A, 0xE0A988, 0x6F83EA)
+
+@Composable
+private fun WallTune(w: Wall, open: Boolean, modifier: Modifier, onOpen: (Boolean) -> Unit) {
+    val haptic = LocalHapticFeedback.current
+    @Suppress("UNUSED_EXPRESSION") Walls.tick
+    val k by animateFloatAsState(if (open) 1f else 0f, tween(if (open) 420 else 280, easing = if (open) K.decel else K.accel), label = "tune")
+    Column(modifier.widthIn(max = 560.dp).fillMaxWidth()
+        .graphicsLayer { translationY = (1f - k) * (size.height - 46.dp.toPx()) }
+        .clip(RoundedCornerShape(topStart = 26.dp, topEnd = 26.dp))
+        .background(Color(0xFF1E2129).copy(alpha = .86f * k)),
+        horizontalAlignment = Alignment.CenterHorizontally) {
+        Box(Modifier.fillMaxWidth().size(46.dp).pointerInput(Unit) {
+            detectTapGestures { haptic.performHapticFeedback(HapticFeedbackType.TextHandleMove); onOpen(!open) }
+        }.pointerInput(open) {
+            var sum = 0f
+            androidx.compose.foundation.gestures.detectVerticalDragGestures(onDragStart = { sum = 0f }, onDragEnd = { if (sum < -30f) onOpen(true) else if (sum > 30f) onOpen(false) }) { _, d -> sum += d }
+        }, contentAlignment = Alignment.Center) {
+            Box(Modifier.size(44.dp, 5.dp).background(Color.White.copy(alpha = .7f), RoundedCornerShape(3.dp)))
+        }
+        Column(Modifier.fillMaxWidth().padding(start = 16.dp, end = 16.dp, bottom = 18.dp).navigationBarsPadding().graphicsLayer { alpha = k }) {
+            val align = w.view[5].toInt()
+            Row(Modifier.fillMaxWidth().clip(RoundedCornerShape(16.dp)).background(Color.White.copy(alpha = .085f)).padding(4.dp), horizontalArrangement = Arrangement.spacedBy(4.dp)) {
+                listOf("覆盖", "填充", "自由").forEachIndexed { i, t ->
+                    Pressable({ Walls.align(i); haptic.performHapticFeedback(HapticFeedbackType.TextHandleMove) }, Modifier.weight(1f), label = t) { pr ->
+                        Box(Modifier.fillMaxWidth().size(40.dp).clip(RoundedCornerShape(12.dp)).background(if (align == i) Color.White.copy(alpha = .14f) else Color.Transparent).scale(if (pr) .96f else 1f), contentAlignment = Alignment.Center) {
+                            Txt(t, if (align == i) Color(0xFFECEEF2) else Color(0x8FECEEF2), 15.sp, maxLines = 1)
+                        }
+                    }
+                }
+            }
+            Spacer(Modifier.size(8.dp))
+            Pressable({ Walls.flip(); haptic.performHapticFeedback(HapticFeedbackType.TextHandleMove) }, Modifier.fillMaxWidth(), label = "翻转") { _ ->
+                Row(Modifier.fillMaxWidth().size(52.dp).padding(horizontal = 6.dp), verticalAlignment = Alignment.CenterVertically) {
+                    Txt("翻转", Color(0xFFECEEF2), 15.5.sp, Modifier.weight(1f), maxLines = 1)
+                    val on = w.view[4] > .5f
+                    val x by animateFloatAsState(if (on) 1f else 0f, tween(240, easing = K.decel), label = "flip")
+                    Box(Modifier.size(44.dp, 26.dp).clip(RoundedCornerShape(13.dp)).background(if (on) Skin.accent else Color.White.copy(alpha = .16f))) {
+                        Box(Modifier.padding(3.dp).graphicsLayer { translationX = x * 18.dp.toPx() }.size(20.dp).background(Color.White, CircleShape))
+                    }
+                }
+            }
+            Row(Modifier.fillMaxWidth().size(52.dp).padding(horizontal = 6.dp), verticalAlignment = Alignment.CenterVertically) {
+                Txt("速度", Color(0xFFECEEF2), 15.5.sp, Modifier.width(56.dp), maxLines = 1)
+                var sp by remember(w.id) { mutableStateOf(w.speed) }
+                TuneSlider(sp, .25f, 2f, Modifier.weight(1f), { sp = it; Walls.speed(it) }) { Walls.save() }
+                Txt((Math.round(sp * 100) / 100f).toString().removeSuffix(".0") + "×", Color(0x8FECEEF2), 14.sp, Modifier.width(44.dp).padding(start = 8.dp), maxLines = 1)
+            }
+            if (align == 2) Row(Modifier.fillMaxWidth().size(52.dp).padding(horizontal = 6.dp), verticalAlignment = Alignment.CenterVertically) {
+                Txt("背景色", Color(0xFFECEEF2), 15.5.sp, Modifier.weight(1f), maxLines = 1)
+                TUNE_BG.forEach { c ->
+                    val on = Math.round(w.view[6] * 255) == (c shr 16 and 255) && Math.round(w.view[7] * 255) == (c shr 8 and 255) && Math.round(w.view[8] * 255) == (c and 255)
+                    Box(Modifier.padding(start = 10.dp).size(26.dp).then(if (on) Modifier.border(2.dp, Skin.accent, CircleShape) else Modifier.border(1.dp, Color.White.copy(alpha = .25f), CircleShape))
+                        .padding(if (on) 3.dp else 0.dp).background(Color(0xFF000000.toInt() or c), CircleShape)
+                        .pointerInput(c) { detectTapGestures { Walls.bg(c); haptic.performHapticFeedback(HapticFeedbackType.TextHandleMove) } })
+                }
+            }
+            Pressable({ Walls.reset(); haptic.performHapticFeedback(HapticFeedbackType.TextHandleMove) }, Modifier.fillMaxWidth(), label = "重置") { _ ->
+                Box(Modifier.fillMaxWidth().size(52.dp).padding(horizontal = 6.dp), contentAlignment = Alignment.CenterStart) { Txt("重置", Skin.accent, 15.5.sp, maxLines = 1) }
+            }
+        }
     }
 }
 

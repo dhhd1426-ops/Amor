@@ -40,6 +40,8 @@ internal class WeThread(
     private val texts: WeTexts?,
     private val view: () -> FloatArray,
     private val bands: () -> FloatArray?,
+    /** 播放速度（壁纸设置里的「速度」） */
+    private val speed: () -> Float,
     /** GL 线程上回调：ok、出错的话是原因、跳过的图层、场景要不要听声音、场景宽高比、诊断信息（显卡、图层数、包版本） */
     private val onState: (ok: Boolean, error: String, skipped: List<String>, audio: Boolean, aspect: Float, info: String) -> Unit,
 ) : Thread("we-gl") {
@@ -75,7 +77,7 @@ internal class WeThread(
             while (!quit) {
                 if (!playing) { last = -1L; try { sleep(80) } catch (_: InterruptedException) {}; continue }
                 val now = System.nanoTime()
-                if (last > 0) clock += min(.25, (now - last) / 1e9)
+                if (last > 0) clock += min(.25, (now - last) / 1e9) * speed()
                 last = now
                 scene.frame(clock.toFloat(), max(1, w), max(1, h), view(), bands())
                 if (!EGL14.eglSwapBuffers(dpy, surf)) break // 表面没了
