@@ -523,9 +523,20 @@ private fun EntrySheet(bookId: String, e0: WbEntry?, sheet: KSheetState, kind: S
     Group {
         KLabel("条目名称"); KField(e.name, { e = e.copy(name = it) }, hint = if (e.kind.isNotEmpty()) WbKinds.nameHint(e.kind) else "")
         SwitchLine("启用条目", e.enabled) { e = e.copy(enabled = it) }
+        // 分类（Kelivo 没有这一项，样式照它的「注入位置」）：选了就归到小说世界书那一段；内容还空着时预填模板
+        ValueLine("分类", e.kind.ifEmpty { "无" }) {
+            pick("分类", listOf("" to "无") + WbKinds.all.map { it to it }, e.kind) { k ->
+                e = e.copy(
+                    kind = k,
+                    content = if (e.content.isBlank()) WbKinds.template[k].orEmpty() else e.content,
+                    matchAll = if (k == "关系") true else if (e.kind == "关系") false else e.matchAll,
+                )
+            }
+        }
     }
     Group {
-        val ex = WbKinds.example[e.kind]
+        // 看示例一直在：没分类时看人物的示例
+        val ex = WbKinds.example[e.kind.ifEmpty { "人物" }]
         Row(verticalAlignment = Alignment.CenterVertically) {
             Box(Modifier.weight(1f)) { KLabel("内容") }
             if (ex != null) {
