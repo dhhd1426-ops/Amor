@@ -237,6 +237,7 @@ fun FuguangApp(prefs: Prefs, fullscreen: Boolean, setFullscreen: (Boolean) -> Un
             if (!zen) TgAuthLayer()
             if (!zen) LessonCardLayer()
             if (!zen) FoldCardLayer()
+            if (!zen) OutlineCardLayer()
         }
 
         // 「这次用了」里点一样本事：去「我的 → 功能 → 技能」看它
