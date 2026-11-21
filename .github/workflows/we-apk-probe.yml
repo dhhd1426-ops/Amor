@@ -20,8 +20,7 @@ jobs:
           grep -oE 'https?://[^"'"'"' <>]+\.apk' page.html | sort -u > r/links.txt || true
           grep -oE 'href="[^"]*(apk|android)[^"]*"' page.html | sort -u >> r/links.txt || true
           cat r/links.txt
-          URL=$(grep -oE 'https?://[^"'"'"' <>]+\.apk' page.html | head -1)
-          if [ -z "$URL" ]; then URL="https://wallpaperengine.io/android/apk/wallpaper-engine.apk"; fi
+          URL="https://www.wallpaperengine.io/android/apk/wallpaper-engine.apk"
           echo "$URL" > r/url.txt
           curl -sSL -A "Mozilla/5.0" "$URL" -o we.apk
           ls -la we.apk; file we.apk | tee r/file.txt
