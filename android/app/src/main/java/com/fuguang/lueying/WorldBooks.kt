@@ -36,11 +36,16 @@ data class WbEntry(
     val sticky: Int = 0,
     val cooldown: Int = 0,
     val delay: Int = 0,
+    /** 小说世界书里的分类：人物 / 关系 / 世界 / 剧情；普通条目为空。 */
+    val kind: String = "",
+    /** 所有关键词都出现才触发（关系条目：两个人同时被提到）。 */
+    val matchAll: Boolean = false,
 ) {
     fun toJson(): JSONObject = JSONObject().put("id", id).put("name", name).put("enabled", enabled).put("priority", priority)
         .put("position", position.wire).put("content", content).put("injectDepth", injectDepth).put("role", role.uppercase())
         .put("keywords", JSONArray(keywords)).put("useRegex", useRegex).put("caseSensitive", caseSensitive).put("scanDepth", scanDepth)
         .put("constantActive", constantActive).put("sticky", sticky).put("cooldown", cooldown).put("delay", delay)
+        .put("kind", kind).put("matchAll", matchAll)
 
     companion object {
         fun newId() = "${System.currentTimeMillis()}-${(Math.random() * 1e6).toInt()}"
@@ -52,19 +57,22 @@ data class WbEntry(
                 if (o.optString("role").equals("ASSISTANT", true)) "assistant" else "user", kw,
                 o.optBoolean("useRegex"), o.optBoolean("caseSensitive"), o.optInt("scanDepth", 4), o.optBoolean("constantActive"),
                 o.optInt("sticky").coerceIn(0, 10000), o.optInt("cooldown").coerceIn(0, 10000), o.optInt("delay").coerceIn(0, 10000),
+                o.optString("kind").takeIf { it in WbKinds.all }.orEmpty(), o.optBoolean("matchAll"),
             )
         }
     }
 }
 
-data class WorldBook(val id: String, val name: String = "", val description: String = "", val enabled: Boolean = true, val entries: List<WbEntry> = emptyList()) {
+/** novel：按人物 / 关系 / 世界 / 剧情分组显示（小说世界书）。 */
+data class WorldBook(val id: String, val name: String = "", val description: String = "", val enabled: Boolean = true, val entries: List<WbEntry> = emptyList(), val novel: Boolean = false) {
     val enabledCount get() = entries.count { it.enabled }
     fun toJson(): JSONObject = JSONObject().put("id", id).put("name", name).put("description", description).put("enabled", enabled)
-        .put("entries", JSONArray(entries.map { it.toJson() }))
+        .put("entries", JSONArray(entries.map { it.toJson() })).put("novel", novel)
     companion object {
         fun fromJson(o: JSONObject) = WorldBook(
             o.optString("id").ifBlank { WbEntry.newId() }, o.optString("name"), o.optString("description"), o.optBoolean("enabled", true),
             o.optJSONArray("entries")?.let { a -> (0 until a.length()).mapNotNull { a.optJSONObject(it) }.map(WbEntry::fromJson) } ?: emptyList(),
+            o.optBoolean("novel"),
         )
     }
 }
@@ -168,6 +176,10 @@ object WorldBooks {
     fun matches(e: WbEntry, context: String): Boolean {
         if (!e.enabled) return false
         if (e.constantActive) return true
+        if (e.matchAll) {
+            val keys = e.keywords.map { it.trim() }.filter { it.isNotEmpty() }
+            return keys.isNotEmpty() && keys.all { k -> hit(e, k, context) }
+        }
         for (raw in e.keywords) {
             val k = raw.trim()
             if (k.isEmpty()) continue
@@ -178,6 +190,10 @@ object WorldBooks {
         }
         return false
     }
+
+    private fun hit(e: WbEntry, k: String, context: String): Boolean =
+        if (e.useRegex) runCatching { Regex(k, if (e.caseSensitive) emptySet() else setOf(RegexOption.IGNORE_CASE)).containsMatchIn(context) }.getOrDefault(false)
+        else if (e.caseSensitive) context.contains(k) else context.lowercase().contains(k.lowercase())
 
     /** 这一轮触发了哪些条目（按优先级从高到低，同级按书和条目的顺序）；粘滞、冷却、延迟按消息条数算。 */
     fun evaluate(books: List<WorldBook>, history: List<ChatMsg>, convId: String?): List<WbEntry> {

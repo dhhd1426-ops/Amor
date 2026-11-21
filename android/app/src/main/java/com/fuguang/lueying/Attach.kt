@@ -26,6 +26,22 @@ object Attach {
     /** 一个文件读出来的字最多带多少给她。 */
     private const val TEXT_MAX = 40_000
 
+    /** 文字文件每一轮都要带，读出的字缓存最近几份（epub、docx 每次解压太慢）。 */
+    private val textCache = object : LinkedHashMap<String, String?>(8, .75f, true) {
+        override fun removeEldestEntry(eldest: MutableMap.MutableEntry<String, String?>?) = size > 4
+    }
+
+    private fun readCached(f: java.io.File): String? {
+        val k = f.absolutePath + "|" + f.length() + "|" + f.lastModified()
+        synchronized(textCache) { if (textCache.containsKey(k)) return textCache[k] }
+        val t = AttachRead.text(f)
+        synchronized(textCache) { textCache[k] = t }
+        return t
+    }
+
+    /** 一份文字文件最多带多少字：模型窗口的 3/4（中文约一字一 token 内），留够对话的地方。 */
+    fun textMax(window: Int): Int = (window * 3 / 4).coerceIn(TEXT_MAX, 800_000)
+
     fun init(ctx: Context) { root = File(ctx.filesDir, "attach").apply { mkdirs() }; VideoFrames.init(ctx); MotionPreview.init(ctx) }
 
     fun file(ref: String): File = File(root, ref)
@@ -120,8 +136,10 @@ object Attach {
     /**
      * 一条你的消息带着照片、文件时，发给供应商的 content。
      * full = 最近两条带东西的消息：图原样带上；更早的只留一句「之前发过」，免得每轮都重发。
+     * 文字文件（txt、docx、epub……）每一轮都整份带上（照 ChatGPT / Claude：文件一直在对话里），
+     * 一份最多 [textMax] 个字，按模型窗口算；重复的开头会命中供应商的缓存，按缓存价计。
      */
-    fun content(m: ChatMsg, anthropic: Boolean, vision: Boolean, full: Boolean): Any {
+    fun content(m: ChatMsg, anthropic: Boolean, vision: Boolean, full: Boolean, textMax: Int = TEXT_MAX): Any {
         val parts = JSONArray()
         val notes = StringBuilder()
         val imgs = m.files.filter(::isImage)
@@ -141,10 +159,9 @@ object Attach {
         docs.forEach { r ->
             val f = file(r)
             val n = name(r)
-            if (!full) { notes.append("（之前他发来过文件《$n》。）\n"); return@forEach }
-            val pdfPages = if (n.endsWith(".pdf", true) && vision && !anthropic) AttachRead.pdfPages(f, 6) else emptyList()
+            val pdfPages = if (full && n.endsWith(".pdf", true) && vision && !anthropic) AttachRead.pdfPages(f, 6) else emptyList()
             when {
-                n.endsWith(".pdf", true) && anthropic && f.length() < 24_000_000 -> {
+                full && n.endsWith(".pdf", true) && anthropic && f.length() < 24_000_000 -> {
                     parts.put(JSONObject().put("type", "document").put("source", JSONObject().put("type", "base64").put("media_type", "application/pdf").put("data", b64(f.readBytes()))))
                     notes.append("（他发来了文件《$n》，就是上面这份。）\n")
                 }
@@ -152,10 +169,11 @@ object Attach {
                     pdfPages.forEach { image(parts, it, "image/jpeg", anthropic) }
                     notes.append("（他发来了文件《$n》，上面是前 ${pdfPages.size} 页的样子。）\n")
                 }
+                !full && n.endsWith(".pdf", true) -> notes.append("（之前他发来过文件《$n》。）\n")
                 else -> {
-                    val t = AttachRead.text(f)
+                    val t = readCached(f)
                     if (t.isNullOrBlank()) notes.append("（他发来了文件《$n》，${kb(f.length())}，这种文件你打不开。如实告诉他。）\n")
-                    else notes.append("（他发来了文件《$n》，里面写的是：）\n").append(t.take(TEXT_MAX)).append(if (t.length > TEXT_MAX) "\n（后面还有，没带全。）\n" else "\n").append("（文件到这里。）\n")
+                    else notes.append("（他发来了文件《$n》，里面写的是：）\n").append(t.take(textMax)).append(if (t.length > textMax) "\n（后面还有，没带全。）\n" else "\n").append("（文件到这里。）\n")
                 }
             }
         }

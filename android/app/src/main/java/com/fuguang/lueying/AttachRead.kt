@@ -19,12 +19,12 @@ object AttachRead {
     fun text(f: File): String? = runCatching {
         val ext = f.extension.lowercase()
         when {
-            ext in TEXT -> f.inputStream().use { head(it, 400_000) }.let { decode(it) }
+            ext in TEXT -> f.inputStream().use { head(it, 8_000_000) }.let { decode(it) }
             ext == "docx" -> office(f) { it == "word/document.xml" }
             ext == "pptx" -> office(f) { it.startsWith("ppt/slides/slide") && it.endsWith(".xml") }
             ext == "xlsx" -> office(f) { it == "xl/sharedStrings.xml" || (it.startsWith("xl/worksheets/sheet") && it.endsWith(".xml")) }
             ext == "epub" -> office(f) { it.endsWith(".xhtml") || it.endsWith(".html") }
-            else -> f.inputStream().use { head(it, 200_000) }.takeIf { looksText(it) }?.let { decode(it) }
+            else -> f.inputStream().use { head(it, 8_000_000) }.takeIf { looksText(it) }?.let { decode(it) }
         }
     }.getOrNull()
 

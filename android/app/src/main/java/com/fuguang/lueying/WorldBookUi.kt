@@ -38,6 +38,8 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.layout.widthIn
+import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.verticalScroll
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.lazy.rememberLazyListState
@@ -258,7 +260,7 @@ private fun BookSection(
             Txt("${b.enabledCount}/${b.entries.size}", K.ink.copy(alpha = .6f), 12.sp)
             Spacer(Modifier.width(4.dp))
             if (b.entries.isNotEmpty() && !selecting) HeadIcon(WbI.checks, "多选条目") { sel[b.id] = emptySet(); WorldBooks.expand(b.id) }
-            HeadIcon(WbI.plus, "添加条目") { sheet.open { EntrySheet(b.id, null, sheet) } }
+            if (!b.novel) HeadIcon(WbI.plus, "添加条目") { sheet.open { EntrySheet(b.id, null, sheet) } }
             HeadIcon(WbI.share, "分享/导出", onClick = onExport)
             HeadIcon(WbI.cfg, "配置") { sheet.open { BookSheet(b, sheet) } }
             HeadIcon(WbI.trash, "删除", color = K.danger) { confirmDeleteBook(b) { sel.remove(b.id) } }
@@ -270,7 +272,8 @@ private fun BookSection(
         ) {
             Column(Modifier.fillMaxWidth().clip(RoundedCornerShape(20.dp)).background(K.card).padding(vertical = 4.dp)) {
                 if (picked != null) SelectionBar(b, picked, sel, onToast)
-                if (b.entries.isEmpty()) Row(Modifier.fillMaxWidth().heightIn(min = 48.dp).padding(horizontal = 10.dp), verticalAlignment = Alignment.CenterVertically) {
+                if (b.novel) NovelSections(b, picked, sel, sheet, onToast)
+                else if (b.entries.isEmpty()) Row(Modifier.fillMaxWidth().heightIn(min = 48.dp).padding(horizontal = 10.dp), verticalAlignment = Alignment.CenterVertically) {
                     Box(Modifier.width(28.dp), contentAlignment = Alignment.Center) { SvgIcon(WbI.tree, K.ink.copy(alpha = .9f), 20.dp, stroke = 1.8f) }
                     Spacer(Modifier.width(8.dp))
                     Txt("暂无条目", K.ink.copy(alpha = .9f), 15.sp)
@@ -290,6 +293,22 @@ private fun BookSection(
                     }
                 }
             }
+        }
+    }
+}
+
+/** 小说世界书：按人物、关系、世界、剧情分段，每段一行小标题和「＋」（新建时预填这一类的模板）。没分类的条目放在最后「其他」。 */
+@Composable
+private fun NovelSections(b: WorldBook, picked: Set<String>?, sel: MutableMap<String, Set<String>>, sheet: KSheetState, onToast: (String) -> Unit) {
+    val kinds = WbKinds.all + if (b.entries.any { it.kind.isEmpty() }) listOf("") else emptyList()
+    kinds.forEach { k ->
+        val list = b.entries.filter { it.kind == k }
+        Row(Modifier.fillMaxWidth().padding(start = 16.dp, end = 4.dp, top = 6.dp), verticalAlignment = Alignment.CenterVertically) {
+            Txt("${k.ifEmpty { "其他" }} ${list.size}", K.sub, 12.5.sp, Modifier.weight(1f))
+            if (k.isNotEmpty() && picked == null) HeadIcon(WbI.plus, "新建$k", size = 16) { sheet.open { EntrySheet(b.id, null, sheet, k) } }
+        }
+        list.forEachIndexed { i, e ->
+            key(e.id) { EntryRow(b, e, Modifier, false, last = i == list.lastIndex, picked = picked, sel = sel, sheet = sheet, onToast = onToast) }
         }
     }
 }
@@ -325,7 +344,7 @@ private fun EntryRow(
                 val label = e.position.label + if (e.position == WbPosition.DEPTH) " · ${e.injectDepth}" else ""
                 Txt(label, pc.copy(alpha = a), 11.sp, Modifier.clip(RoundedCornerShape(6.dp)).background(pc.copy(alpha = .12f * a)).padding(horizontal = 7.dp, vertical = 3.dp), maxLines = 1)
             }
-            val detail = if (!e.enabled) "已停用" else if (e.constantActive) "常驻" else null
+            val detail = if (!e.enabled) "已停用" else if (e.constantActive) "常驻" else if (e.matchAll) "同时出现" else null
             if (detail != null) Txt(detail, K.ink.copy(alpha = .6f * a), 13.sp, Modifier.padding(start = 8.dp, end = 6.dp).widthIn(max = 80.dp), maxLines = 1)
             if (picked == null) KSwitch(e.enabled, "启用") { on -> WorldBooks.get(b.id)?.let { cur -> WorldBooks.put(cur.copy(entries = cur.entries.map { if (it.id == e.id) it.copy(enabled = on) else it })) } }
         }
@@ -408,14 +427,16 @@ private fun BookSheet(book: WorldBook?, sheet: KSheetState) {
     var name by remember { mutableStateOf(book?.name.orEmpty()) }
     var desc by remember { mutableStateOf(book?.description.orEmpty()) }
     var on by remember { mutableStateOf(book?.enabled ?: true) }
+    var novel by remember { mutableStateOf(book?.novel ?: false) }
     KSheetTitle(if (book == null) "添加世界书" else "配置")
     Group {
         KLabel("名称"); KField(name, { name = it })
         KLabel("简介"); KField(desc, { desc = it }, lines = 2)
         SwitchLine("启用", on) { on = it }
+        SwitchLine("按人物、关系、世界、剧情分组", novel) { novel = it }
     }
     Buttons(sheet) {
-        val b = (book ?: WorldBook(WbEntry.newId())).copy(name = name.trim(), description = desc.trim(), enabled = on)
+        val b = (book ?: WorldBook(WbEntry.newId())).copy(name = name.trim(), description = desc.trim(), enabled = on, novel = novel)
         WorldBooks.put(b)
         sheet.close()
     }
@@ -488,20 +509,52 @@ private fun <T> pick(title: String, options: List<Pair<T, String>>, cur: T, onPi
 /** 添加 / 编辑条目（_WorldBookEntryEditSheet）：分成几组，常驻或有关键词才能保存。 */
 @OptIn(ExperimentalLayoutApi::class)
 @Composable
-private fun EntrySheet(bookId: String, e0: WbEntry?, sheet: KSheetState) {
-    var e by remember { mutableStateOf(e0 ?: WbEntry(WbEntry.newId())) }
+private fun EntrySheet(bookId: String, e0: WbEntry?, sheet: KSheetState, kind: String = "") {
+    // 小说世界书里新建：内容预填这一类的模板；关系条目默认两个名字同时出现才触发
+    var e by remember { mutableStateOf(e0 ?: WbEntry(WbEntry.newId(), content = WbKinds.template[kind].orEmpty(), kind = kind, matchAll = kind == "关系")) }
+    var showEx by remember { mutableStateOf(false) }
     var kw by remember { mutableStateOf("") }
     fun addKw() {
         val parts = kw.split(Regex("[,，\\n]")).map { it.trim() }.filter { it.isNotEmpty() && it !in e.keywords }
         if (parts.isNotEmpty()) e = e.copy(keywords = e.keywords + parts)
         kw = ""
     }
-    KSheetTitle(if (e0 == null) "添加条目" else "编辑条目")
+    KSheetTitle(if (e0 != null) "编辑条目" else if (kind.isNotEmpty()) "新建$kind" else "添加条目")
     Group {
-        KLabel("条目名称"); KField(e.name, { e = e.copy(name = it) })
+        KLabel("条目名称"); KField(e.name, { e = e.copy(name = it) }, hint = if (e.kind.isNotEmpty()) WbKinds.nameHint(e.kind) else "")
         SwitchLine("启用条目", e.enabled) { e = e.copy(enabled = it) }
     }
-    Group { KLabel("内容"); KField(e.content, { e = e.copy(content = it) }, lines = 8); Spacer(Modifier.height(8.dp)) }
+    Group {
+        val ex = WbKinds.example[e.kind]
+        Row(verticalAlignment = Alignment.CenterVertically) {
+            Box(Modifier.weight(1f)) { KLabel("内容") }
+            if (ex != null) {
+                val turn by animateFloatAsState(if (showEx) 270f else 90f, tween(320, easing = K.decel), label = "exChev")
+                Pressable({ showEx = !showEx }, Modifier.padding(top = 6.dp), label = if (showEx) "收起示例" else "看示例") { pressed ->
+                    Row(
+                        Modifier.clip(RoundedCornerShape(10.dp)).background(if (pressed) K.acc.copy(alpha = .12f) else Color.Transparent).padding(horizontal = 8.dp, vertical = 4.dp),
+                        verticalAlignment = Alignment.CenterVertically,
+                    ) {
+                        Txt("看示例", K.acc, 13.sp)
+                        Spacer(Modifier.width(2.dp))
+                        SvgIcon(WbI.chev, K.acc, 14.dp, stroke = 1.8f, modifier = Modifier.graphicsLayer { rotationZ = turn })
+                    }
+                }
+            }
+        }
+        if (ex != null) AnimatedVisibility(
+            showEx,
+            enter = expandVertically(tween(380, easing = K.decel), expandFrom = Alignment.Top) + fadeIn(tween(320, delayMillis = 60)),
+            exit = shrinkVertically(tween(280, easing = K.accel), shrinkTowards = Alignment.Top) + fadeOut(tween(200)),
+        ) {
+            Txt(
+                ex, K.sub, 13.sp,
+                Modifier.padding(bottom = 10.dp).fillMaxWidth().heightIn(max = 300.dp).clip(RoundedCornerShape(14.dp)).background(K.well)
+                    .verticalScroll(rememberScrollState()).padding(12.dp),
+            )
+        }
+        KField(e.content, { e = e.copy(content = it) }, lines = 8); Spacer(Modifier.height(8.dp))
+    }
     Group {
         SwitchLine("常驻激活", e.constantActive, "无需匹配也会注入") { e = e.copy(constantActive = it) }
         KLabel("关键词")
@@ -516,6 +569,7 @@ private fun EntrySheet(bookId: String, e0: WbEntry?, sheet: KSheetState) {
             }
         }
         Txt("输入关键词后点 + 添加。", K.sub, 12.5.sp, Modifier.padding(top = 8.dp, bottom = 4.dp))
+        SwitchLine("所有关键词同时出现才触发", e.matchAll) { e = e.copy(matchAll = it) }
         SwitchLine("使用正则", e.useRegex) { e = e.copy(useRegex = it) }
         SwitchLine("区分大小写", e.caseSensitive) { e = e.copy(caseSensitive = it) }
         NumLine("扫描深度", e.scanDepth) { e = e.copy(scanDepth = it) }
