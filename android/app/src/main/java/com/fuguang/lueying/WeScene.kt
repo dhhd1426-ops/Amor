@@ -22,8 +22,9 @@ import kotlin.math.sin
  * 包里的着色器原样用，只在前面加一段方言头。所有方法都在 GL 线程调用。
  * 坐标约定：所有贴图和缓冲统一「v=0 是图的顶」。细节见项目文档《壁纸-渲染器笔记》。
  */
-internal class WeScene(private val pack: WePack, private val texts: WeTexts?) {
-    class Tex(var id: Int, var w: Int, var h: Int, var fb: Int = 0)
+internal class WeScene(private val pack: WePack, private val texts: WeTexts?, private val eng: WeEngine? = null) {
+    /** [w]×[h] 贴图大小，[iw]×[ih] 图片本身（ETC2 补过边时比贴图小） */
+    class Tex(var id: Int, var w: Int, var h: Int, var fb: Int = 0, var iw: Int = w, var ih: Int = h)
     private class U(val name: String, val type: Int, val loc: Int, val ann: JSONObject?)
     private class Prog(val p: Int, val us: List<U>)
     private class Pass(val prog: Prog, val values: JSONObject, val texNames: List<String?>, val binds: List<Pair<Int, String>>, val target: String?)
@@ -34,6 +35,8 @@ internal class WeScene(private val pack: WePack, private val texts: WeTexts?) {
         var angle = 0f; var alpha = 1f; var color = floatArrayOf(1f, 1f, 1f); var brightness = 1f
         val fx = ArrayList<Fx>(); val named = HashMap<String, Tex>()
         var a: Tex? = null; var b: Tex? = null; var bad = false
+        /** 材质自己的着色器（不是 genericimage 那一类时）、它的贴图名和参数；混合方式 */
+        var base: Pass? = null; var blend = "translucent"
         // 文字层
         var px = 40f; var pad = 0f; var fixed = ""; var str: String? = null; var align = "center"; var id = ""
     }
@@ -76,7 +79,8 @@ internal class WeScene(private val pack: WePack, private val texts: WeTexts?) {
     private fun vec(v: Any?, d: FloatArray): FloatArray = nums(v) ?: d
     private fun num(v: Any?, d: Float): Float = nums(v)?.firstOrNull() ?: d
     private fun why(e: Throwable) = (e.message ?: e.javaClass.simpleName).trim().take(600)
-    private fun text(path: String): String? = pack.text(path) ?: BUILTIN[path]
+    /** 先找壁纸包，再找官方素材，最后用自带的替身 */
+    private fun text(path: String): String? = pack.text(path) ?: eng?.text(path) ?: BUILTIN[path]
     private fun json(path: String): JSONObject = JSONObject(text(path) ?: throw IllegalStateException("包里没有 $path"))
 
     // ---------- 贴图和缓冲 ----------
@@ -101,9 +105,9 @@ internal class WeScene(private val pack: WePack, private val texts: WeTexts?) {
     }
     private fun texture(name: String): Tex? {
         textures[name]?.let { return it }
-        val b = pack.bytes("materials/$name.tex") ?: return null
+        val b = pack.bytes("materials/$name.tex") ?: eng?.bytes("materials/$name.tex") ?: return null
         val img = WeTex.decode(b, 2048)
-        return mkTex(img.w, img.h, img.data, etc2 = img.etc2).also { textures[name] = it }
+        return mkTex(img.w, img.h, img.data, etc2 = img.etc2).also { it.iw = img.iw; it.ih = img.ih; textures[name] = it }
     }
 
     // ---------- 着色器 ----------
@@ -128,9 +132,13 @@ internal class WeScene(private val pack: WePack, private val texts: WeTexts?) {
         for (k in combos) if (IDENT_ONLY.matches(k)) src = src.replace(Regex("([=(,:?]\\s*)" + k + "\\s*\\?"), "$1($k != 0) ?")
         return src
     }
+    /** 展开 #include：先用官方头文件，没有才用替身；官方头文件之间还互相 include，要递归 */
     private fun expand(src: String, seen: HashSet<String>): String = INCLUDE.replace(src) { m ->
         val f = m.groupValues[1]
-        if (!seen.add(f)) "" else INCLUDES[f] ?: throw IllegalStateException("缺头文件 $f")
+        if (!seen.add(f)) "" else {
+            val h = eng?.text("shaders/$f") ?: INCLUDES[f] ?: throw IllegalStateException("缺头文件 $f")
+            expand(h, seen) // Kotlin 的 replace { } 原样插入，不要再转义
+        }
     }
 
     /** shader：如 effects/shake；combos：材质和场景给的开关；given：哪些贴图槽给了图（带 combo 的槽据此开关） */
@@ -147,17 +155,20 @@ internal class WeScene(private val pack: WePack, private val texts: WeTexts?) {
         }
         if (combos != null) for (k in combos.keys()) defs[k] = num(combos.opt(k), 0f)
         val vs = hlsl(expand(v0, HashSet()), defs.keys); val fs = hlsl(expand(f0, HashSet()), defs.keys)
-        // #if 里用到但没人定义的名字一律当 0（GLSL ES 里未定义的名字会报错，WE 的编译器当 0）
+        // #if / #elif 里用到但没人定义的名字：只在那一行里换成 0（WE 的编译器当 0，GLSL ES 会报错）。
+        // 不能全局 #define 成 0：官方着色器同一个名字还用在 #ifdef 里（如 SKINNING_ALPHA），定义了 #ifdef 就成真了。
         val defined = HashSet<String>(); for (m in DEFINE.findAll(HEAD + vs + fs)) defined += m.groupValues[1]
-        for (m in IFLINE.findAll(vs + "\n" + fs)) for (id in IDENT.findAll(m.groupValues[1])) {
-            val k = id.value
-            if (k != "defined" && k !in defined && k !in defs) defs[k] = 0f
+        fun fixIf(src: String) = IFLINE_FULL.replace(src) { m ->
+            m.groupValues[1] + IF_TOKEN.replace(m.groupValues[2]) { t ->
+                val id = t.value
+                if (id.startsWith("defined") || id in defined || id in defs) id else "0"
+            }
         }
         val dstr = StringBuilder()
         for ((k, v) in defs) if (IDENT_ONLY.matches(k)) dstr.append("#define ").append(k).append(' ').append(if (v == v.toInt().toFloat()) v.toInt().toString() else v.toString()).append('\n')
         val key = "$shader|$dstr"
         cache[key]?.let { return it }
-        val p = link(VHEAD + dstr + vs, FHEAD + dstr + fs, shader)
+        val p = link(VHEAD + dstr + fixIf(vs), FHEAD + dstr + fixIf(fs), shader)
         val n = IntArray(1); GLES30.glGetProgramiv(p, GLES30.GL_ACTIVE_UNIFORMS, n, 0)
         val us = ArrayList<U>(); val sz = IntArray(1); val ty = IntArray(1)
         for (i in 0 until n[0]) {
@@ -182,7 +193,9 @@ internal class WeScene(private val pack: WePack, private val texts: WeTexts?) {
     // ---------- 读场景 ----------
     /** [surfaceH]：屏幕高（像素）。场景缓冲的高度跟屏幕走，540–1080 之间（高刷大屏全分辨率跑模糊太费电）。 */
     fun load(surfaceH: Int) {
-        val scene = json("scene.json")
+        // 场景文件名在 project.json 的 file 里，不一定叫 scene.json（官方示例 fantasticcar.json、techno.json）
+        val pj = runCatching { JSONObject(pack.text("project.json") ?: "{}") }.getOrDefault(JSONObject())
+        val scene = json(pj.optString("file").takeIf { it.endsWith(".json", true) } ?: "scene.json")
         val general = scene.optJSONObject("general") ?: JSONObject()
         val ortho = general.optJSONObject("orthogonalprojection")
         W = (ortho?.optDouble("width", 1920.0) ?: 1920.0).toFloat(); H = (ortho?.optDouble("height", 1080.0) ?: 1080.0).toFloat()
@@ -200,7 +213,7 @@ internal class WeScene(private val pack: WePack, private val texts: WeTexts?) {
         full = quad(floatArrayOf(-1f, -1f, 0f, 0f, 1f, -1f, 1f, 0f, -1f, 1f, 0f, 1f, 1f, 1f, 1f, 1f))         // 缓冲之间：第 0 行就是图的顶
         unit = quad(floatArrayOf(-.5f, -.5f, 0f, 1f, .5f, -.5f, 1f, 1f, -.5f, .5f, 0f, 0f, .5f, .5f, 1f, 0f)) // 画进场景：顶边 v=0
         copyProg = rawProg(COPY_F); blitProg = rawProg(BLIT_F)
-        generic = program("genericimage2", null, booleanArrayOf(true))
+        generic = program("genericimage2", JSONObject().put("VERSION", 2).put("SPRITESHEET", 1), booleanArrayOf(true))
         sceneBuf = mkTarget(W * q, sh.toFloat())
 
         val objects = scene.optJSONArray("objects") ?: JSONArray()
@@ -221,19 +234,33 @@ internal class WeScene(private val pack: WePack, private val texts: WeTexts?) {
         l.color = vec(o.opt("color"), floatArrayOf(1f, 1f, 1f)).let { if (it.size >= 3) it else floatArrayOf(1f, 1f, 1f) }
         val image = unwrap(o.opt("image")) as? String
         val txt = o.opt("text")
+        var msize: FloatArray? = null
         if (image != null) {
             when {
                 image.contains("util/composelayer") || image.contains("util/fullscreenlayer") || image.contains("util/projectlayer") -> l.kind = "compose"
                 image.contains("util/solidlayer") -> { l.kind = "solid"; l.tex = textures["util/white"] }
                 else -> {
+                    // 官方：图层 = 模型（一块 width×height 的方片）+ 材质。材质自己定着色器、贴图、参数、混合方式，不一定是 genericimage2
                     l.kind = "image"
-                    val mat = json(json(image).getString("material"))
-                    val tn = mat.getJSONArray("passes").getJSONObject(0).getJSONArray("textures").getString(0)
-                    l.tex = texture(tn) ?: throw IllegalStateException("缺贴图 $tn")
+                    val model = json(image)
+                    val mp = json(model.getString("material")).getJSONArray("passes").getJSONObject(0)
+                    val names = ArrayList<String?>(); mp.optJSONArray("textures")?.let { ta -> for (k in 0 until ta.length()) names += (ta.opt(k) as? String)?.takeIf { it.isNotEmpty() } }
+                    val rt = names.any { it?.startsWith("_rt_") == true }
+                    val first = names.firstOrNull()
+                    l.tex = if (first != null && !first.startsWith("_rt_")) texture(first) ?: throw IllegalStateException("缺贴图 $first") else textures["util/white"]
+                    l.blend = mp.optString("blending").ifEmpty { "translucent" }
+                    val shader = mp.optString("shader").ifEmpty { "genericimage2" }
+                    if (rt || !GENERIC.matches(shader)) { // 要拿整帧画面的，也走这条
+                        val given = BooleanArray(8); names.forEachIndexed { k, n -> if (n != null && k < 8) given[k] = true }; given[0] = true
+                        l.base = Pass(program(shader, mp.optJSONObject("combos") ?: JSONObject(), given), mp.optJSONObject("constantshadervalues") ?: JSONObject(), names, emptyList(), null)
+                    }
+                    if (model.has("width") && model.has("height")) msize = floatArrayOf(model.optDouble("width").toFloat(), model.optDouble("height").toFloat())
+                    if (model.has("puppet")) skipped += (o.optString("name").ifEmpty { l.id }) + "：骨骼动画（还没做，先画静态图）"
                 }
             }
             val t = l.tex
-            l.size = vec(o.opt("size"), if (t != null) floatArrayOf(t.w.toFloat(), t.h.toFloat()) else floatArrayOf(W, H)).let { if (it.size >= 2) it else floatArrayOf(W, H) }
+            // 大小：图层自己写了就用；没写用模型的 width/height（手机版导出时贴图常被压到一半，按贴图算会小一半）；再没有才按图片本身
+            l.size = vec(o.opt("size"), msize ?: if (t != null) floatArrayOf(t.iw.toFloat(), t.ih.toFloat()) else floatArrayOf(W, H)).let { if (it.size >= 2) it else floatArrayOf(W, H) }
         } else if (txt != null && txt != JSONObject.NULL) {
             l.kind = "text"
             val tj = txt as? JSONObject
@@ -244,7 +271,11 @@ internal class WeScene(private val pack: WePack, private val texts: WeTexts?) {
             l.tex = mkTex(1, 1, byteArrayOf(0, 0, 0, 0))
             val script = tj?.optString("script").orEmpty()
             if (script.isNotEmpty()) texts?.register(l.id, script, (tj?.optJSONObject("scriptproperties") ?: JSONObject()).toString(), l.fixed)
-        } else return null
+        } else {
+            val what = when { o.has("particle") -> "粒子"; o.has("model") -> "3D 模型"; o.has("light") -> "灯光"; else -> null }
+            if (what != null) skipped += (o.optString("name").ifEmpty { l.id }) + "：$what（还没做）"
+            return null
+        }
 
         val effects = o.optJSONArray("effects") ?: JSONArray()
         for (i in 0 until effects.length()) {
@@ -292,7 +323,7 @@ internal class WeScene(private val pack: WePack, private val texts: WeTexts?) {
                 GLES30.glActiveTexture(GLES30.GL_TEXTURE0 + i); GLES30.glBindTexture(GLES30.GL_TEXTURE_2D, t.id); GLES30.glUniform1i(u.loc, i); continue
             }
             val res = SLOT_RES.matchEntire(n)
-            if (res != null) { val t = c.tex.getOrNull(res.groupValues[1].toInt()) ?: white; GLES30.glUniform4f(u.loc, t.w.toFloat(), t.h.toFloat(), t.w.toFloat(), t.h.toFloat()); continue }
+            if (res != null) { val t = c.tex.getOrNull(res.groupValues[1].toInt()) ?: white; GLES30.glUniform4f(u.loc, t.w.toFloat(), t.h.toFloat(), t.iw.toFloat(), t.ih.toFloat()); continue }
             if (n == "g_ModelViewProjectionMatrix") { GLES30.glUniformMatrix4fv(u.loc, 1, false, c.mvp ?: IDENTITY, 0); continue }
             if (n == "g_Time") { GLES30.glUniform1f(u.loc, time); continue }
             val au = AUDIO.matchEntire(n)
@@ -302,7 +333,7 @@ internal class WeScene(private val pack: WePack, private val texts: WeTexts?) {
                 val m = u.ann.optString("material")
                 v = nums(if (m.isNotEmpty() && c.values != null && c.values.has(m)) c.values.opt(m) else u.ann.opt("default"))
             }
-            if (v == null || v.isEmpty()) v = when (n) { "g_Color" -> floatArrayOf(1f, 1f, 1f); "g_Alpha", "g_Brightness" -> floatArrayOf(1f); else -> floatArrayOf(0f, 0f, 0f, 0f) }
+            if (v == null || v.isEmpty()) v = when (n) { "g_Color4" -> floatArrayOf(1f, 1f, 1f, 1f); "g_Texture0Rotation" -> floatArrayOf(1f, 0f, 0f, 1f); "g_Brightness", "g_UserAlpha" -> floatArrayOf(1f); else -> floatArrayOf(0f, 0f, 0f, 0f) }
             val vv = v
             fun g(i: Int) = vv[min(i, vv.size - 1)]
             when (u.type) {
@@ -339,7 +370,7 @@ internal class WeScene(private val pack: WePack, private val texts: WeTexts?) {
         val t = l.tex!!
         GLES30.glBindTexture(GLES30.GL_TEXTURE_2D, t.id); GLES30.glPixelStorei(GLES30.GL_UNPACK_ALIGNMENT, 1)
         GLES30.glTexImage2D(GLES30.GL_TEXTURE_2D, 0, GLES30.GL_RGBA, bw, bh, 0, GLES30.GL_RGBA, GLES30.GL_UNSIGNED_BYTE, ByteBuffer.wrap(out))
-        t.w = bw; t.h = bh
+        t.w = bw; t.h = bh; t.iw = bw; t.ih = bh
         if (l.size[0] != w || l.size[1] != h) { l.size = floatArrayOf(w, h); drop(l.a); drop(l.b); l.named.values.forEach { drop(it) }; l.a = null; l.b = null; l.named.clear() }
     }
     private fun drop(t: Tex?) {
@@ -354,35 +385,61 @@ internal class WeScene(private val pack: WePack, private val texts: WeTexts?) {
         into(target); GLES30.glDisable(GLES30.GL_BLEND); bind(prog, c)
         GLES30.glBindVertexArray(full); GLES30.glDrawArrays(GLES30.GL_TRIANGLE_STRIP, 0, 4)
     }
+    /** 贴图补过边时只取图片那一块（官方 genericimage2 的 SPRITESHEET 换算） */
+    private fun uvOf(t: Tex) = floatArrayOf(t.iw.toFloat() / t.w, 0f, 0f, t.ih.toFloat() / t.h)
+    private fun plain(t: Tex) = mapOf("g_Color4" to floatArrayOf(1f, 1f, 1f, 1f), "g_Texture0Rotation" to uvOf(t), "g_Texture0Translation" to floatArrayOf(0f, 0f))
+
+    /** _rt_FullFrameBuffer：到这一层为止已经画好的整个画面（官方后期效果、全屏层要用）。每帧第一次要的时候拷一份 */
+    private var fullBuf: Tex? = null; private var fullAt = -1; private var frameNo = 0
+    private fun fullFrame(): Tex {
+        fullBuf?.let { if (fullAt == frameNo) return it }
+        val f = fullBuf ?: mkTarget(sceneBuf.w.toFloat(), sceneBuf.h.toFloat()).also { fullBuf = it }
+        copyArea(f, sceneBuf, floatArrayOf(W / 2, H / 2), floatArrayOf(W, H), floatArrayOf(1f, -1f))
+        fullAt = frameNo; return f
+    }
+    private fun copyArea(target: Tex, src: Tex, origin: FloatArray, size: FloatArray, scale: FloatArray) {
+        into(target); GLES30.glDisable(GLES30.GL_BLEND); GLES30.glUseProgram(copyProg)
+        GLES30.glActiveTexture(GLES30.GL_TEXTURE0); GLES30.glBindTexture(GLES30.GL_TEXTURE_2D, src.id)
+        GLES30.glUniform1i(GLES30.glGetUniformLocation(copyProg, "s"), 0)
+        GLES30.glUniform2f(GLES30.glGetUniformLocation(copyProg, "origin"), origin[0], origin[1])
+        GLES30.glUniform2f(GLES30.glGetUniformLocation(copyProg, "size"), size[0], size[1])
+        GLES30.glUniform2f(GLES30.glGetUniformLocation(copyProg, "scale"), scale[0], scale[1])
+        GLES30.glUniform2f(GLES30.glGetUniformLocation(copyProg, "scene"), W, H)
+        GLES30.glBindVertexArray(full); GLES30.glDrawArrays(GLES30.GL_TRIANGLE_STRIP, 0, 4)
+    }
+    private fun byName(name: String): Tex? = if (name == "_rt_FullFrameBuffer") fullFrame() else texture(name)
+
     private fun toScene(l: Layer, t: Tex) {
         into(sceneBuf); GLES30.glEnable(GLES30.GL_BLEND)
-        GLES30.glBlendFuncSeparate(GLES30.GL_SRC_ALPHA, GLES30.GL_ONE_MINUS_SRC_ALPHA, GLES30.GL_ONE, GLES30.GL_ONE_MINUS_SRC_ALPHA)
+        // 材质的混合方式：additive 叠加发光，normal / disabled 直接盖，其余按透明度
+        when (l.blend) {
+            "additive" -> GLES30.glBlendFuncSeparate(GLES30.GL_SRC_ALPHA, GLES30.GL_ONE, GLES30.GL_ZERO, GLES30.GL_ONE)
+            "normal", "disabled" -> GLES30.glBlendFuncSeparate(GLES30.GL_ONE, GLES30.GL_ZERO, GLES30.GL_ONE, GLES30.GL_ZERO)
+            else -> GLES30.glBlendFuncSeparate(GLES30.GL_SRC_ALPHA, GLES30.GL_ONE_MINUS_SRC_ALPHA, GLES30.GL_ONE, GLES30.GL_ONE_MINUS_SRC_ALPHA)
+        }
         val c = cos(l.angle); val s = sin(l.angle); val sx = l.size[0] * l.scale[0]; val sy = l.size[1] * l.scale[1]
         val mvp = floatArrayOf(c * sx * 2 / W, s * sx * 2 / H, 0f, 0f, -s * sy * 2 / W, c * sy * 2 / H, 0f, 0f, 0f, 0f, -1f, 0f, l.origin[0] * 2 / W - 1, l.origin[1] * 2 / H - 1, 0f, 1f)
-        bind(generic, Ctx(arrayOf(t), mvp = mvp, extra = mapOf("g_Color" to l.color, "g_Alpha" to floatArrayOf(l.alpha), "g_Brightness" to floatArrayOf(l.brightness))))
+        val b = l.brightness
+        bind(generic, Ctx(arrayOf(t), mvp = mvp, extra = mapOf("g_Color4" to floatArrayOf(l.color[0] * b, l.color[1] * b, l.color[2] * b, l.alpha), "g_Texture0Rotation" to uvOf(t), "g_Texture0Translation" to floatArrayOf(0f, 0f))))
         GLES30.glBindVertexArray(unit); GLES30.glDrawArrays(GLES30.GL_TRIANGLE_STRIP, 0, 4)
     }
     private fun drawLayer(l: Layer) {
         if (unwrap(l.o.opt("visible")) == false) return
         if (l.kind == "text") drawText(l)
-        if (l.fx.isEmpty() && l.kind != "compose") { toScene(l, l.tex!!); return }
+        if (l.fx.isEmpty() && l.kind != "compose" && l.base == null) { toScene(l, l.tex!!); return }
         val bw = l.size[0] * q; val bh = l.size[1] * q
         if (l.a == null) { l.a = mkTarget(bw, bh); l.b = mkTarget(bw, bh) }
         var cur = l.a!!; var nxt = l.b!!
-        if (l.kind == "compose") { // 取下面已经画好的画面
-            into(cur); GLES30.glDisable(GLES30.GL_BLEND); GLES30.glUseProgram(copyProg)
-            GLES30.glActiveTexture(GLES30.GL_TEXTURE0); GLES30.glBindTexture(GLES30.GL_TEXTURE_2D, sceneBuf.id)
-            GLES30.glUniform1i(GLES30.glGetUniformLocation(copyProg, "s"), 0)
-            GLES30.glUniform2f(GLES30.glGetUniformLocation(copyProg, "origin"), l.origin[0], l.origin[1])
-            GLES30.glUniform2f(GLES30.glGetUniformLocation(copyProg, "size"), l.size[0], l.size[1])
-            GLES30.glUniform2f(GLES30.glGetUniformLocation(copyProg, "scale"), l.scale[0], l.scale[1])
-            GLES30.glUniform2f(GLES30.glGetUniformLocation(copyProg, "scene"), W, H)
-            GLES30.glBindVertexArray(full); GLES30.glDrawArrays(GLES30.GL_TRIANGLE_STRIP, 0, 4)
-        } else fullPass(cur, generic, Ctx(arrayOf(l.tex)))
+        val base = l.base
+        if (l.kind == "compose") copyArea(cur, sceneBuf, l.origin, l.size, l.scale) // 取下面已经画好的画面
+        else if (base != null) { // 材质自带的着色器：按材质的贴图和参数画进缓冲
+            val tex = arrayOfNulls<Tex>(8); base.texNames.forEachIndexed { i, n -> if (n != null && i < 8) tex[i] = byName(n) }
+            fullPass(cur, base.prog, Ctx(tex, values = base.values, extra = plain(l.tex!!)))
+        } else fullPass(cur, generic, Ctx(arrayOf(l.tex), extra = plain(l.tex!!)))
         for (fx in l.fx) for (p in fx.passes) {
             fun named(n: String): Tex = l.named.getOrPut(n) { val sc = fx.fbos[n] ?: 1f; mkTarget(bw / sc, bh / sc) }
             val tex = arrayOfNulls<Tex>(8); tex[0] = cur
-            p.texNames.forEachIndexed { i, n -> if (n != null && i < 8) tex[i] = if (n.startsWith("_rt_imageLayerComposite")) cur else (texture(n) ?: if (fx.fbos.containsKey(n)) named(n) else null) }
+            p.texNames.forEachIndexed { i, n -> if (n != null && i < 8) tex[i] = if (n.startsWith("_rt_imageLayerComposite")) cur else if (fx.fbos.containsKey(n)) named(n) else byName(n) }
             for ((ix, n) in p.binds) if (ix in 0..7) tex[ix] = if (n == "previous") cur else named(n)
             val target = if (p.target != null) named(p.target) else nxt
             fullPass(target, p.prog, Ctx(tex, values = p.values))
@@ -396,7 +453,7 @@ internal class WeScene(private val pack: WePack, private val texts: WeTexts?) {
      * [bands] 64 段频谱（0–1），没有就传 null。
      */
     fun frame(t: Float, sw: Int, sh: Int, view: FloatArray, bands: FloatArray?) {
-        time = t
+        time = t; frameNo++
         val a64 = audio[64]!!
         for (c in 0..1) for (i in 0 until 64) { val target = bands?.getOrNull(i) ?: 0f; a64[c][i] += (target.coerceIn(0f, 1f) - a64[c][i]) * .35f }
         for (n in intArrayOf(32, 16)) { val k = 64 / n; val an = audio[n]!!; for (c in 0..1) for (i in 0 until n) { var s = 0f; for (j in 0 until k) s += a64[c][i * k + j]; an[c][i] = s / k } }
@@ -425,8 +482,9 @@ internal class WeScene(private val pack: WePack, private val texts: WeTexts?) {
         private val COMBO = Regex("//\\s*\\[COMBO\\]\\s*(\\{.*\\})")
         private val UNIFORM = Regex("uniform\\s+(\\w+)\\s+(\\w+)\\s*(?:\\[\\d+\\])?\\s*;\\s*//\\s*(\\{.*\\})")
         private val DEFINE = Regex("#define\\s+(\\w+)")
-        private val IFLINE = Regex("^[ \\t]*#\\s*(?:if|elif)\\b(.*)$", RegexOption.MULTILINE)
-        private val IDENT = Regex("[A-Za-z_]\\w*")
+        private val IFLINE_FULL = Regex("^([ \\t]*#\\s*(?:if|elif)\\b)(.*)$", RegexOption.MULTILINE)
+        private val IF_TOKEN = Regex("defined\\s*\\(\\s*\\w+\\s*\\)|defined\\s+\\w+|[A-Za-z_]\\w*")
+        private val GENERIC = Regex("genericimage\\d?")
         private val IDENT_ONLY = Regex("[A-Za-z_]\\w*")
         private val F_SUFFIX1 = Regex("(\\d+\\.\\d*|\\.\\d+)f\\b")
         private val F_SUFFIX2 = Regex("\\b(\\d+)f\\b")
@@ -556,15 +614,15 @@ vec4 ApplyComposite(vec4 A, vec4 B){
 
         /** 包里没有、引擎自带的着色器 */
         private val BUILTIN = mapOf(
+            // 没装官方 App 时的替身：接口和官方 genericimage2 一样（g_Color4、SPRITESHEET 的贴图换算）
             "shaders/genericimage2.vert" to """
-uniform mat4 g_ModelViewProjectionMatrix;
+uniform mat4 g_ModelViewProjectionMatrix; uniform vec4 g_Texture0Rotation; uniform vec2 g_Texture0Translation;
 attribute vec3 a_Position; attribute vec2 a_TexCoord; varying vec2 v_TexCoord;
-void main(){ gl_Position = mul(vec4(a_Position, 1.0), g_ModelViewProjectionMatrix); v_TexCoord = a_TexCoord; }
+void main(){ gl_Position = mul(vec4(a_Position, 1.0), g_ModelViewProjectionMatrix); v_TexCoord = g_Texture0Translation + a_TexCoord.x * g_Texture0Rotation.xy + a_TexCoord.y * g_Texture0Rotation.zw; }
 """,
             "shaders/genericimage2.frag" to """
-varying vec2 v_TexCoord; uniform sampler2D g_Texture0;
-uniform vec3 g_Color; uniform float g_Alpha; uniform float g_Brightness;
-void main(){ vec4 c = texSample2D(g_Texture0, v_TexCoord); gl_FragColor = vec4(c.rgb * g_Color * g_Brightness, c.a * g_Alpha); }
+varying vec2 v_TexCoord; uniform sampler2D g_Texture0; uniform vec4 g_Color4;
+void main(){ gl_FragColor = texSample2D(g_Texture0, v_TexCoord) * g_Color4; }
 """,
         )
         private const val RAW_V = """#version 300 es

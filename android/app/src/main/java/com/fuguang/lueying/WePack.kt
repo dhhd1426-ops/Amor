@@ -63,8 +63,37 @@ internal class WePack(file: File) : Closeable {
     }
 }
 
-/** 解出来的一张贴图：RGBA 每像素 4 字节（第 0 行是图的顶，没有预乘）；[etc2] 为真时是 ETC2 RGBA8 压缩块，原样交给显卡。 */
-internal class WeImage(val w: Int, val h: Int, val data: ByteArray, val etc2: Boolean = false)
+/**
+ * 解出来的一张贴图：RGBA 每像素 4 字节（第 0 行是图的顶，没有预乘）；[etc2] 为真时是 ETC2 RGBA8 压缩块，原样交给显卡。
+ * [w]×[h] 是数据的大小（ETC2 可能补过边），[iw]×[ih] 是图片本身；着色器的 g_TextureNResolution = (w, h, iw, ih)。
+ */
+internal class WeImage(val w: Int, val h: Int, val data: ByteArray, val etc2: Boolean = false, val iw: Int = w, val ih: Int = h)
+
+/**
+ * 官方 Wallpaper Engine 安卓版的引擎素材（第 549 版）：着色器、公共头文件、基础贴图、模型，都在它安装包的 assets/ 里，全是源码。
+ * 运行时直接读用户手机上已装的官方 App，Amor 自己不打包。没装就返回 null，渲染器退回自带的替身。
+ * 安卓 11 起要在清单里声明 <queries> 才看得见这个包。
+ */
+internal class WeEngine(val file: File) : Closeable {
+    private val zip = java.util.zip.ZipFile(file)
+    private val textCache = HashMap<String, String?>()
+
+    fun bytes(path: String): ByteArray? = synchronized(zip) { zip.getEntry("assets/$path")?.let { e -> zip.getInputStream(e).use { it.readBytes() } } }
+    fun text(path: String): String? = textCache.getOrPut(path) { bytes(path)?.let { String(it, Charsets.UTF_8) } }
+    override fun close() { runCatching { zip.close() } }
+
+    companion object {
+        const val PKG = "io.wallpaperengine.weclient"
+        /** 官方 App 的安装包；没装返回 null */
+        fun apk(ctx: android.content.Context): File? = runCatching {
+            @Suppress("DEPRECATION") val ai = ctx.packageManager.getApplicationInfo(PKG, 0)
+            File(ai.sourceDir).takeIf { it.canRead() }
+        }.getOrNull()
+        fun version(ctx: android.content.Context): String? = runCatching {
+            @Suppress("DEPRECATION") ctx.packageManager.getPackageInfo(PKG, 0).versionName
+        }.getOrNull()
+    }
+}
 
 internal object WeTex {
     /** LZ4 块解压 */
@@ -124,7 +153,8 @@ internal object WeTex {
         if (fmt == 5) { // ETC2 RGBA8：安卓显卡直接认
             val need = ((w + 3) / 4) * ((h + 3) / 4) * 16
             if (raw.size - rawOff < need) throw IllegalArgumentException("贴图数据坏了")
-            return WeImage(w, h, if (rawOff == 0 && raw.size == need) raw else raw.copyOfRange(rawOff, rawOff + need), etc2 = true)
+            return WeImage(w, h, if (rawOff == 0 && raw.size == need) raw else raw.copyOfRange(rawOff, rawOff + need), etc2 = true,
+                iw = if (imgW in 1..w) imgW else w, ih = if (imgH in 1..h) imgH else h)
         }
         val bpp = when (fmt) { 0 -> 4; 8 -> 2; 9 -> 1; else -> throw IllegalArgumentException("还不支持的贴图格式 $fmt") }
         if (raw.size - rawOff < w * h * bpp) throw IllegalArgumentException("贴图数据坏了")

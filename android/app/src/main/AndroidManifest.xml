@@ -27,6 +27,8 @@
 
     <queries>
         <intent><action android:name="android.speech.RecognitionService" /></intent>
+        <!-- 壁纸：读官方 Wallpaper Engine 安装包里的引擎素材（着色器、基础贴图），安卓 11 起要声明才看得见这个包 -->
+        <package android:name="io.wallpaperengine.weclient" />
     </queries>
 
     <application

@@ -35,6 +35,8 @@ internal class WeThread(
     private val surface: SurfaceTexture,
     @Volatile var w: Int, @Volatile var h: Int,
     private val file: File,
+    /** 官方 App 的安装包（读引擎素材）；没装是 null */
+    private val engine: File?,
     private val texts: WeTexts?,
     private val view: () -> FloatArray,
     private val bands: () -> FloatArray?,
@@ -48,7 +50,7 @@ internal class WeThread(
 
     override fun run() {
         var dpy: EGLDisplay = EGL14.EGL_NO_DISPLAY; var ctx: EGLContext = EGL14.EGL_NO_CONTEXT; var surf: EGLSurface = EGL14.EGL_NO_SURFACE
-        var pack: WePack? = null; var scene: WeScene? = null; var gpu = "未知"
+        var pack: WePack? = null; var scene: WeScene? = null; var gpu = "未知"; var eng: WeEngine? = null
         try {
             dpy = EGL14.eglGetDisplay(EGL14.EGL_DEFAULT_DISPLAY)
             val ver = IntArray(2)
@@ -65,7 +67,8 @@ internal class WeThread(
             gpu = "${android.opengl.GLES30.glGetString(android.opengl.GLES30.GL_RENDERER)} · ${android.opengl.GLES30.glGetString(android.opengl.GLES30.GL_VERSION)}"
 
             pack = WePack(file)
-            scene = WeScene(pack, texts)
+            eng = engine?.let { runCatching { WeEngine(it) }.getOrNull() }
+            scene = WeScene(pack, texts, eng)
             scene.load(h)
 
             var clock = 0.0; var last = -1L; var first = true; var reported = 0
@@ -85,6 +88,7 @@ internal class WeThread(
         } finally {
             runCatching { scene?.release() }
             runCatching { pack?.close() }
+            runCatching { eng?.close() }
             runCatching {
                 if (dpy != EGL14.EGL_NO_DISPLAY) {
                     EGL14.eglMakeCurrent(dpy, EGL14.EGL_NO_SURFACE, EGL14.EGL_NO_SURFACE, EGL14.EGL_NO_CONTEXT)

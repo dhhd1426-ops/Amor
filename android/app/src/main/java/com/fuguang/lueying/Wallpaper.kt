@@ -324,7 +324,10 @@ private class WeHost(ctx: Context, private val wall: Wall, private val onReady: 
 
     override fun onSurfaceTextureAvailable(st: SurfaceTexture, w: Int, h: Int) {
         stop()
-        val t = WeThread(st, w, h, wall.path, scripts, view, bands) { ok, err, skipped, au, aspect, info ->
+        val engine = WeEngine.apk(app)
+        val engInfo = if (engine != null) "官方素材：已读到（Wallpaper Engine ${WeEngine.version(app) ?: ""}）" else "官方素材：没装官方 Wallpaper Engine，用自带替身"
+        val t = WeThread(st, w, h, wall.path, engine, scripts, view, bands) { ok, err, skipped, au, aspect, info0 ->
+            val info = info0 + "\n" + engInfo
             main.post {
                 if (closed) return@post
                 wall.aspect = aspect
