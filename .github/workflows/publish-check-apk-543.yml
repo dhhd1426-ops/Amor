@@ -1,0 +1,30 @@
+name: Publish check APK 543
+
+on:
+  push:
+    branches: [release/check-apk-543]
+
+permissions:
+  actions: read
+  contents: write
+
+jobs:
+  publish:
+    runs-on: ubuntu-latest
+    env:
+      GH_TOKEN: ${{ github.token }}
+      GH_REPO: ${{ github.repository }}
+    steps:
+      - name: Verify and publish the existing APK
+        shell: bash
+        run: |
+          set -euo pipefail
+          gh api "repos/$GH_REPO/actions/artifacts/14696050955/zip" > artifact.zip
+          echo "2647779d4b47e4eba2de3daf2e0bf478e902c7e4881d4e8808fbd7cc8910b98b  artifact.zip" | sha256sum -c
+          unzip -p artifact.zip fuguang-lueying-543.apk > fuguang-lueying-543.apk
+          test -s fuguang-lueying-543.apk
+          unzip -tq fuguang-lueying-543.apk
+          gh release create app-build-543 fuguang-lueying-543.apk \
+            --target 1091aa82b6240c8e3a896fec8304733955099e1e --prerelease \
+            --title "浮光掠影 App 第 543 版" \
+            --notes "移除拆书提示词中的额外人物规则。构建记录：https://github.com/dhhd1426-ops/Amor/actions/runs/44874906761"
