@@ -1,0 +1,30 @@
+name: Publish check APK 542
+
+on:
+  push:
+    branches: [release/check-apk-542]
+
+permissions:
+  actions: read
+  contents: write
+
+jobs:
+  publish:
+    runs-on: ubuntu-latest
+    env:
+      GH_TOKEN: ${{ github.token }}
+      GH_REPO: ${{ github.repository }}
+    steps:
+      - name: Verify and publish the existing APK
+        shell: bash
+        run: |
+          set -euo pipefail
+          gh api "repos/$GH_REPO/actions/artifacts/14693279749/zip" > artifact.zip
+          echo "89a108ff4829a95621e0b3e2ea3d5132fea4de06c7099a89fcf32cbdc13d8347  artifact.zip" | sha256sum -c
+          unzip -p artifact.zip fuguang-lueying-542.apk > fuguang-lueying-542.apk
+          test -s fuguang-lueying-542.apk
+          unzip -tq fuguang-lueying-542.apk
+          gh release create app-build-542 fuguang-lueying-542.apk \
+            --target 3d15e2d309828fee3c871441b96c6c267a60b8d2 --prerelease \
+            --title "浮光掠影 App 第 542 版" \
+            --notes "编辑条目加「分类」、「看示例」一直显示；读 txt 自动认编码（GBK、UTF-16、Big5 不再乱码）。构建记录：https://github.com/dhhd1426-ops/Amor/actions/runs/44871573192"
