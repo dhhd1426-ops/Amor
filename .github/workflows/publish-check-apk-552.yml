@@ -1,0 +1,30 @@
+name: Publish check APK 552
+
+on:
+  push:
+    branches: [release/check-apk-552]
+
+permissions:
+  actions: read
+  contents: write
+
+jobs:
+  publish:
+    runs-on: ubuntu-latest
+    env:
+      GH_TOKEN: ${{ github.token }}
+      GH_REPO: ${{ github.repository }}
+    steps:
+      - name: Verify and publish the existing APK
+        shell: bash
+        run: |
+          set -euo pipefail
+          gh api "repos/$GH_REPO/actions/artifacts/14715698833/zip" > artifact.zip
+          echo "ea72be2bc7a2fb3dca7e1aeeb86cd64b3848aa8bfeaa4ba3b51a56bdb48429cf  artifact.zip" | sha256sum -c
+          unzip -p artifact.zip fuguang-lueying-552.apk > fuguang-lueying-552.apk
+          test -s fuguang-lueying-552.apk
+          unzip -tq fuguang-lueying-552.apk
+          gh release create app-build-552 fuguang-lueying-552.apk \
+            --target 6a59774a9218f4946b91ba789d2b22bb1bbc1e29 --prerelease \
+            --title "浮光掠影 App 第 552 版" \
+            --notes "官方引擎探测：长按场景壁纸 → 官方引擎。构建记录：https://github.com/dhhd1426-ops/Amor/actions/runs/44927633788"
