@@ -1,0 +1,30 @@
+name: Publish check APK 549
+
+on:
+  push:
+    branches: [release/check-apk-549]
+
+permissions:
+  actions: read
+  contents: write
+
+jobs:
+  publish:
+    runs-on: ubuntu-latest
+    env:
+      GH_TOKEN: ${{ github.token }}
+      GH_REPO: ${{ github.repository }}
+    steps:
+      - name: Verify and publish the existing APK
+        shell: bash
+        run: |
+          set -euo pipefail
+          gh api "repos/$GH_REPO/actions/artifacts/14712386397/zip" > artifact.zip
+          echo "8c38950ae225f6d8041da21e01b0c9d79fc6f4dc0d52c435868f7ad9e9b45a9b  artifact.zip" | sha256sum -c
+          unzip -p artifact.zip fuguang-lueying-549.apk > fuguang-lueying-549.apk
+          test -s fuguang-lueying-549.apk
+          unzip -tq fuguang-lueying-549.apk
+          gh release create app-build-549 fuguang-lueying-549.apk \
+            --target e1936ca68ec26b3188b0dc1b384a6052e15cf1db --prerelease \
+            --title "浮光掠影 App 第 549 版" \
+            --notes "壁纸：照官方 Wallpaper Engine 源码改渲染器（读手机上官方 App 的引擎素材）、图层按材质画、长按壁纸看诊断框。构建记录：https://github.com/dhhd1426-ops/Amor/actions/runs/44916219435"
