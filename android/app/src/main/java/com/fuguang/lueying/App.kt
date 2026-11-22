@@ -30,7 +30,6 @@ import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.layout.widthIn
 import androidx.compose.foundation.layout.windowInsetsPadding
 import androidx.compose.foundation.shape.CircleShape
-import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.CompositionLocalProvider
 import androidx.compose.runtime.DisposableEffect
@@ -285,7 +284,7 @@ private fun ShowUiButton(blur: Dp, onClick: () -> Unit) {
     Pressable(onClick, Modifier.navigationBarsPadding().padding(bottom = 25.dp), label = "显示界面") { pressed ->
         Row(
             Modifier
-                .glass(RoundedCornerShape(50), blur.coerceAtLeast(10.dp), fill = if (Skin.light) Color.White.copy(alpha = if (pressed) .75f else .55f) else Skin.cardFill(if (pressed) .55f else .35f), border = Page.line)
+                .glass(RoundedCornerShape(50), blur.coerceAtLeast(10.dp), fill = if (Skin.light) Color.White.copy(alpha = if (pressed) .75f else .55f) else Skin.cardFill(if (pressed) .55f else .35f))
                 .padding(horizontal = 20.dp, vertical = 12.dp),
             verticalAlignment = Alignment.CenterVertically,
         ) {

@@ -1,0 +1,119 @@
+// Vendored from Kyant0/Shapes (https://github.com/Kyant0/Shapes), Apache-2.0, see LICENSE-Apache-2.0.txt. Only change: no androidx.compose.ui.util dependency.
+package com.kyant.shapes
+
+import androidx.compose.runtime.Immutable
+import androidx.compose.runtime.Stable
+import androidx.compose.ui.geometry.Size
+import androidx.compose.ui.graphics.Outline
+import androidx.compose.ui.unit.Density
+import androidx.compose.ui.unit.Dp
+import androidx.compose.ui.unit.LayoutDirection
+import androidx.compose.ui.unit.isSpecified
+
+@Stable
+fun RoundedRectangularShape.copy(
+    cornerRadius: Dp,
+    style: RoundedCornerStyle = this.style ?: RoundedCornerStyle.Continuous
+) =
+    RoundedRectangle(
+        cornerRadius = cornerRadius,
+        style = style
+    )
+
+@Stable
+fun RoundedRectangularShape.copy(
+    cornerRadii: RectangleCornerRadii,
+    style: RoundedCornerStyle = this.style ?: RoundedCornerStyle.Continuous
+) =
+    UnevenRoundedRectangle(
+        cornerRadii = cornerRadii,
+        style = style
+    )
+
+@Stable
+fun RoundedRectangularShape.copy(
+    topStart: Dp = Dp.Unspecified,
+    topEnd: Dp = Dp.Unspecified,
+    bottomEnd: Dp = Dp.Unspecified,
+    bottomStart: Dp = Dp.Unspecified,
+    style: RoundedCornerStyle = this.style ?: RoundedCornerStyle.Continuous
+): RoundedRectangularShape =
+    CopyRoundedRectangle(
+        shape = this,
+        topStart = topStart,
+        topEnd = topEnd,
+        bottomEnd = bottomEnd,
+        bottomStart = bottomStart,
+        style = style
+    )
+
+@Immutable
+private data class CopyRoundedRectangle(
+    val shape: RoundedRectangularShape,
+    val topStart: Dp,
+    val topEnd: Dp,
+    val bottomEnd: Dp,
+    val bottomStart: Dp,
+    override val style: RoundedCornerStyle
+) : RoundedRectangularShape {
+
+    override fun corners(
+        size: Size,
+        layoutDirection: LayoutDirection,
+        density: Density
+    ): RoundedRectangularShape.Corners {
+        val corners = shape.corners(size, layoutDirection, density)
+        val maxRadius = size.minDimension * 0.5f
+
+        var topLeft = corners.topLeft
+        var topRight = corners.topRight
+        var bottomRight = corners.bottomRight
+        var bottomLeft = corners.bottomLeft
+        with(density) {
+            when (layoutDirection) {
+                LayoutDirection.Ltr -> {
+                    if (topStart.isSpecified) topLeft = topStart.toPx().coerceIn(0f, maxRadius)
+                    if (topEnd.isSpecified) topRight = topEnd.toPx().coerceIn(0f, maxRadius)
+                    if (bottomEnd.isSpecified) bottomRight = bottomEnd.toPx().coerceIn(0f, maxRadius)
+                    if (bottomStart.isSpecified) bottomLeft = bottomStart.toPx().coerceIn(0f, maxRadius)
+                }
+
+                LayoutDirection.Rtl -> {
+                    if (topStart.isSpecified) topRight = topStart.toPx().coerceIn(0f, maxRadius)
+                    if (topEnd.isSpecified) topLeft = topEnd.toPx().coerceIn(0f, maxRadius)
+                    if (bottomEnd.isSpecified) bottomLeft = bottomEnd.toPx().coerceIn(0f, maxRadius)
+                    if (bottomStart.isSpecified) bottomRight = bottomStart.toPx().coerceIn(0f, maxRadius)
+                }
+            }
+        }
+
+        return RoundedRectangularShape.Corners(
+            topLeft = topLeft,
+            topRight = topRight,
+            bottomRight = bottomRight,
+            bottomLeft = bottomLeft
+        )
+    }
+
+    override fun createOutline(size: Size, layoutDirection: LayoutDirection, density: Density): Outline {
+        val corners = corners(size, layoutDirection, density)
+        return roundedRectangleOutline(
+            size = size,
+            topLeft = corners.topLeft,
+            topRight = corners.topRight,
+            bottomRight = corners.bottomRight,
+            bottomLeft = corners.bottomLeft,
+            style = style
+        )
+    }
+
+    override fun copy(style: RoundedCornerStyle) =
+        CopyRoundedRectangle(
+            shape = shape,
+            topStart = topStart,
+            topEnd = topEnd,
+            bottomEnd = bottomEnd,
+            bottomStart = bottomStart,
+            style = style
+        )
+}

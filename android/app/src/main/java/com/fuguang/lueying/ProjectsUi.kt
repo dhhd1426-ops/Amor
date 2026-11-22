@@ -39,7 +39,6 @@ import androidx.compose.foundation.layout.windowInsetsPadding
 import androidx.compose.foundation.layout.wrapContentWidth
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.CircleShape
-import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.text.BasicTextField
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.runtime.Composable
@@ -435,13 +434,13 @@ private fun FileCard(f: ProjFile, modifier: Modifier, onMore: () -> Unit) {
     Box(
         modifier.aspectRatio(1f / 1.05f)
             .graphicsLayer { alpha = a.value; val s = .94f + .06f * a.value; scaleX = s; scaleY = s }
-            .clip(RoundedCornerShape(16.dp)).background(Skin.pop).border(1.dp, veil(.08f), RoundedCornerShape(16.dp)),
+            .clip(RoundedCornerShape(16.dp)).background(Skin.pop),
     ) {
         if (f.image) {
             Thumb(f.ref, Modifier.fillMaxSize(), px = 480)
             Txt(f.name, Color.White, 12.5.sp, Modifier.align(Alignment.BottomStart).padding(12.dp), maxLines = 1, shadow = androidx.compose.ui.graphics.Shadow(Color.Black.copy(alpha = .4f), blurRadius = 8f))
         } else Column(Modifier.fillMaxSize().padding(start = 12.dp, end = 12.dp, top = 10.dp, bottom = 10.dp)) {
-            Txt(f.tag, Page.muted, 10.5.sp, Modifier.border(1.dp, veil(.1f), RoundedCornerShape(6.dp)).padding(horizontal = 6.dp, vertical = 2.dp), maxLines = 1)
+            Txt(f.tag, Page.muted, 10.5.sp, Modifier.background(veil(.07f), RoundedCornerShape(6.dp)).padding(horizontal = 6.dp, vertical = 2.dp), maxLines = 1)
             Txt(f.text.take(200), Page.muted.copy(alpha = .7f), 9.5.sp, Modifier.weight(1f).padding(top = 8.dp, bottom = 6.dp), lineHeight = 14.sp)
             Txt(f.name, Page.ink, 12.5.sp, maxLines = 1)
         }

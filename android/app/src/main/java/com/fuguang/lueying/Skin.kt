@@ -75,17 +75,17 @@ object Skin {
     val pageBrush: Brush get() = if (grad) Brush.verticalGradient(listOf(g.a, g.b)) else SolidColor(page)
 
     /** 不放背景画面时整页的底色。 */
-    val page: Color get() = when (id) { DARK -> Color(0xFF141414); LIGHT -> Color(0xFFF4F3EE); GRAD -> g.mid; else -> Color(0xFF343C44) }
+    val page: Color get() = when (id) { DARK -> Color(0xFF161413); LIGHT -> Color(0xFFF1EFEB); GRAD -> g.mid; else -> Color(0xFF343C44) }
     /** 侧栏。 */
-    val panel: Color get() = when (id) { DARK -> Color(0xFF131313); LIGHT -> Color(0xFFF4F3EE); GRAD -> Color.White.copy(alpha = .5f); else -> rgba(18, 21, 27, .42f) }
+    val panel: Color get() = when (id) { DARK -> Color(0xFF161413); LIGHT -> Color(0xFFF1EFEB); GRAD -> Color.White.copy(alpha = .5f); else -> rgba(18, 21, 27, .42f) }
     /** 悬浮卡片。 */
-    val card: Color get() = when (id) { DARK -> Color(0xFF1E1E1E); LIGHT -> Color(0xFFFAF9F5); GRAD -> Color.White.copy(alpha = .58f); else -> rgba(26, 29, 37, .5f) }
+    val card: Color get() = when (id) { DARK -> Color(0xFF292726); LIGHT -> Color(0xFFFCFBF9); GRAD -> Color.White.copy(alpha = .66f); else -> rgba(40, 42, 48, .52f) }
     /** 从下面升起的抽屉、长按菜单、圆钮卡片：磨砂时用原来的深色实底。 */
-    val sheet: Color get() = when (id) { DARK -> Color(0xFF1E1E1E); LIGHT -> Color(0xFFFAF9F5); GRAD -> g.sheet; else -> rgba(20, 24, 31, .97f) }
+    val sheet: Color get() = when (id) { DARK -> Color(0xFF292726); LIGHT -> Color(0xFFFAF9F5); GRAD -> g.sheet; else -> rgba(20, 24, 31, .97f) }
 
-    val ink: Color get() = when (id) { DARK -> Color(0xFFECECEC); LIGHT -> Color(0xFF1B1B19); GRAD -> g.ink; else -> Color(0xFFFAF5EE) }
+    val ink: Color get() = when (id) { DARK -> Color(0xFFF7F6F2); LIGHT -> Color(0xFF1B1B19); GRAD -> g.ink; else -> Color(0xFFFAF5EE) }
     val muted: Color get() = when (id) { DARK -> Color(0xFF9A9A9A); LIGHT -> Color(0xFF77766F); GRAD -> g.muted; else -> rgba(250, 245, 238, .6f) }
-    val line: Color get() = if (light) rgba(0, 0, 0, .1f) else rgba(255, 255, 255, .2f)
+    val line: Color get() = ink.copy(alpha = .14f)
     /** 实心浅色药丸（新对话、启用）上的字。 */
     val onInk: Color get() = if (light) Color(0xFFF7F6F2) else Color(0xFF1B1A1A)
 
@@ -94,14 +94,14 @@ object Skin {
     /** 往里凹的井（输入框、分段底）：白色主题淡很多。 */
     fun well(a: Float): Color = if (light) Color(0f, 0f, 0f, a * .18f) else Color(0f, 0f, 0f, a)
     /** 卡片里的玻璃块。 */
-    fun tint(a: Float): Color = when (id) { DARK -> Color(0xFF262626).copy(alpha = (a + .5f).coerceAtMost(1f)); LIGHT, GRAD -> Color.White.copy(alpha = (a + .45f).coerceAtMost(1f)); else -> rgba(30, 34, 42, a) }
+    fun tint(a: Float): Color = when (id) { DARK -> Color(0xFF353332).copy(alpha = (a + .5f).coerceAtMost(1f)); LIGHT -> Color(0xFFECEAE5).copy(alpha = (a + .5f).coerceAtMost(1f)); GRAD -> Color.White.copy(alpha = (a + .45f).coerceAtMost(1f)); else -> rgba(30, 34, 42, a) }
     /**
      * 弹层下面的遮罩（第 331 版）：深色主题压黑；白色压一层淡黑；渐变压一层带那套色调的深字色，不发脏发灰。
      * [a] 照原来深色时的不透明度给。
      */
     fun scrim(a: Float): Color = when (id) { LIGHT -> Color.Black.copy(alpha = a * .4f); GRAD -> g.ink.copy(alpha = a * .45f); else -> rgba(6, 9, 14, a) }
     /** 长按菜单、弹出菜单、小面板的底。 */
-    val pop: Color get() = when (id) { DARK -> Color(0xFF2A2A2C); LIGHT -> Color.White; GRAD -> g.pop; else -> rgba(42, 44, 49, .98f) }
+    val pop: Color get() = when (id) { DARK -> Color(0xFF353332); LIGHT -> Color(0xFFFCFBF9); GRAD -> g.pop; else -> rgba(42, 44, 49, .98f) }
     /** 底下冒出来的提示条：深色主题是浅一点的灰底；浅色主题反过来，用深字色做底、浅字。 */
     val toast: Color get() = if (light) ink.copy(alpha = .96f) else rgba(47, 49, 54, .97f)
     val toastInk: Color get() = if (light) Color(0xFFFAF8F4) else Color(0xFFFAF5EE)
@@ -116,14 +116,14 @@ object Skin {
      * 聊天里的作品卡（照 Claude App 的作品卡）：实底 + 一圈 1dp 细线，字跟着主题走。
      * 以前写死白色 5.5% 底 + 固定米白字，白色、渐变主题下白字压白底看不见。
      */
-    val workFill: Color get() = when (id) { DARK -> Color(0xFF1E1E1E); LIGHT -> Color.White; GRAD -> Color.White.copy(alpha = .62f); else -> rgba(26, 29, 37, .5f) }
-    val workPress: Color get() = when (id) { DARK -> Color(0xFF262626); LIGHT -> Color(0xFFF7F6F2); GRAD -> Color.White.copy(alpha = .75f); else -> rgba(26, 29, 37, .62f) }
-    val workLine: Color get() = when (id) { DARK -> Color.White.copy(alpha = .09f); LIGHT -> Color.Black.copy(alpha = .08f); GRAD -> g.ink.copy(alpha = .1f); else -> Color.White.copy(alpha = .12f) }
+    val workFill: Color get() = card
+    val workPress: Color get() = when (id) { DARK -> Color(0xFF353332); LIGHT -> Color(0xFFECEAE5); GRAD -> Color.White.copy(alpha = .78f); else -> rgba(40, 42, 48, .64f) }
+    val workLine: Color get() = Color.Transparent
     /** 作品卡上的图标：白色主题杏色压深一档，别的跟点缀色。 */
     val workIcon: Color get() = if (id == LIGHT) Color(0xFFC4875C) else accent
 
     /** 记忆本的折角卡片（第 345 版）：暗黑是实底深灰，白色是白纸，渐变是白色磨砂，磨砂是深色玻璃。 */
-    val note: Color get() = when (id) { DARK -> Color(0xFF1E1E1E); LIGHT -> Color.White; GRAD -> Color.White.copy(alpha = .55f); else -> rgba(30, 33, 42, .62f) }
+    val note: Color get() = when (id) { DARK -> Color(0xFF292726); LIGHT -> Color(0xFFFCFBF9); GRAD -> Color.White.copy(alpha = .62f); else -> rgba(40, 42, 48, .6f) }
     /** 卡片右上折过来的那一角：比纸深一层。 */
     val noteFold: Color get() = if (light) Color(0f, 0f, 0f, .07f) else Color(1f, 1f, 1f, .12f)
 

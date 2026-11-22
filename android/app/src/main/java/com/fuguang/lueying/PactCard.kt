@@ -30,7 +30,6 @@ import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.layout.widthIn
 import androidx.compose.foundation.shape.CircleShape
-import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
@@ -143,7 +142,7 @@ internal fun KeepCard() {
     Column(
         Modifier.widthIn(max = 340.dp).fillMaxWidth()
             .graphicsLayer { alpha = rise.value; translationY = (1f - rise.value) * 8.dp.toPx() }
-            .background(Skin.cardFill(.85f), RoundedCornerShape(18.dp)).border(1.dp, Page.line, RoundedCornerShape(18.dp))
+            .background(Skin.cardFill(.85f), RoundedCornerShape(18.dp))
             .padding(14.dp),
         verticalArrangement = Arrangement.spacedBy(8.dp),
     ) {

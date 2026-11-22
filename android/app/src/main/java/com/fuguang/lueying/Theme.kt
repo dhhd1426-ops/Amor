@@ -46,7 +46,8 @@ object Page {
     val eyebrow: Color get() = if (Skin.light) Skin.accent else css("#ebd0b9")
     val dot: Color get() = if (Skin.light) Skin.accent else css("#efc5a6")
     val glassFill: Color get() = if (Skin.light) rgba(0, 0, 0, .045f) else rgba(225, 229, 233, .065f)
-    val glassBorder: Color get() = if (Skin.light) rgba(0, 0, 0, .08f) else rgba(255, 255, 255, .17f)
+    /** 第 558 版起不描边，靠亮一档分层（FlClash）。参数留着给要描边的状态用。 */
+    val glassBorder: Color get() = Color.Transparent
 }
 
 /** 弹层颜色：深色为默认，浅色对应网站 [data-theme=light]。 */

@@ -40,7 +40,6 @@ import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.layout.widthIn
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.CircleShape
-import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
@@ -405,7 +404,6 @@ private fun PersonaCard(p: Persona, i: Int, edit: Boolean, selected: Boolean, pr
     val fill by animateColorAsState(
         when {
             lift > .5f -> Skin.pop
-            selected -> lerp(blockFill, Skin.accent.copy(alpha = blockFill.alpha), .18f)
             pressed -> blockPress
             else -> blockFill
         },

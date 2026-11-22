@@ -44,7 +44,6 @@ import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.layout.widthIn
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.CircleShape
-import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
@@ -549,7 +548,7 @@ private fun RenderTrailNode(job: String, run: ArtworkRuns.Entry, last: Boolean) 
                         }
                         val body = run.output.lineSequence().drop(if (run.kind == "motion") 1 else 0).joinToString("\n").trim()
                         if (body.isNotBlank()) {
-                            Box(Modifier.fillMaxWidth().height(1.dp).background(Skin.workLine))
+                            Box(Modifier.fillMaxWidth().height(1.dp).background(Page.line))
                             Txt(body, tint, 13.sp, Modifier.padding(12.dp), lineHeight = 20.sp)
                         }
                         if (thumb != null) TrailImage(thumb)
@@ -565,7 +564,7 @@ private fun RenderTrailNode(job: String, run: ArtworkRuns.Entry, last: Boolean) 
 @Composable
 private fun StepBox(modifier: Modifier = Modifier, content: @Composable () -> Unit) {
     val shape = RoundedCornerShape(12.dp)
-    Column(modifier.fillMaxWidth().background(Skin.workFill, shape).border(1.dp, Skin.workLine, shape).clip(shape)) { content() }
+    Column(modifier.fillMaxWidth().background(Skin.workFill, shape).clip(shape)) { content() }
 }
 
 /** 展开 / 收起的过渡：往下长出 250ms、收回 200ms（离开比进入快）；系统关了动画就直接切换（动效指南第 3 节）。 */
@@ -588,7 +587,7 @@ private fun TrailChevron(open: Boolean) {
 @Composable
 private fun TrailThumb(file: java.io.File) {
     val img by produceState<androidx.compose.ui.graphics.ImageBitmap?>(null, file) { value = ThumbCache.get(file, 128) }
-    Box(Modifier.size(64.dp, 40.dp).clip(RoundedCornerShape(8.dp)).background(veil(.06f)).border(1.dp, Skin.workLine, RoundedCornerShape(8.dp))) {
+    Box(Modifier.size(64.dp, 40.dp).clip(RoundedCornerShape(8.dp)).background(veil(.08f))) {
         img?.let { androidx.compose.foundation.Image(it, null, Modifier.fillMaxSize(), contentScale = androidx.compose.ui.layout.ContentScale.Crop) }
     }
 }

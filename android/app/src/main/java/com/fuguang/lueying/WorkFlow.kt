@@ -23,7 +23,6 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.layout.widthIn
-import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.key
@@ -50,7 +49,7 @@ private val Apricot: Color get() = Skin.accent
 /** 作品卡的底：实底 + 1dp 细线（Skin.workFill / workLine），正在写、没做成、做好了三张卡共用。 */
 internal fun Modifier.workCard(pressed: Boolean = false): Modifier {
     val shape = RoundedCornerShape(16.dp)
-    return this.background(if (pressed) Skin.workPress else Skin.workFill, shape).border(1.dp, Skin.workLine, shape)
+    return this.background(if (pressed) Skin.workPress else Skin.workFill, shape)
 }
 
 /** 正在写 / 正在改的那件作品：at = 她动手时正文写到第几个字；chars = 参数已经来了多少字；title 从参数开头抠出来（改作品就是原来的名字）。 */

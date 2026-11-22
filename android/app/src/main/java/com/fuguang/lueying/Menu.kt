@@ -27,7 +27,6 @@ import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.CircleShape
-import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
@@ -257,16 +256,7 @@ private fun SideFoot(modifier: Modifier, onMine: () -> Unit, onNew: () -> Unit) 
             ) { AvatarFace(Avatars.ME, me, Brush.linearGradient(listOf(SideWarm, Color(0xFFB97F62))), 42.dp) }
         }
         Spacer(Modifier.weight(1f))
-        Pressable(onNew, label = "新对话") { p ->
-            Row(
-                Modifier.background(Page.ink.copy(alpha = if (p) .8f else 1f), RoundedCornerShape(50)).padding(horizontal = 18.dp, vertical = 11.dp),
-                verticalAlignment = Alignment.CenterVertically,
-            ) {
-                SvgIcon(SideIcons.plus, Skin.onInk, 15.dp, stroke = 2f)
-                Spacer(Modifier.width(8.dp))
-                Txt("新对话", Skin.onInk, 14.5.sp, weight = FontWeight.Medium)
-            }
-        }
+        LiquidPill("新对话", SideIcons.plus, onNew)
     }
 }
 

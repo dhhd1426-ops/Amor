@@ -25,7 +25,6 @@ import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.CircleShape
-import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.text.BasicText
 import androidx.compose.foundation.text.BasicTextField
 import androidx.compose.foundation.verticalScroll
@@ -385,13 +384,13 @@ private fun tags(pid: String, m: String): String =
 @Composable
 private fun Cap(text: String) = Txt(text, Page.muted, 10.sp, Modifier.padding(start = 6.dp, top = 16.dp, bottom = 8.dp), spacing = ls(2.5f, 10f))
 
-/** 一行型号：选中淡暖色块 + 勾；tags 是「图」「搜」；mono = 型号用等宽字。 */
+/** 一行型号：选中只打勾（不铺色，照 FlClash）；tags 是「图」「搜」；mono = 型号用等宽字。 */
 @Composable
 private fun PickRow(text: String, tags: String, sel: Boolean, dim: Boolean = false, q: String, mono: Boolean = false, onClick: () -> Unit) {
     Pressable(onClick, Modifier.fillMaxWidth(), label = text) { pressed ->
         Row(
             Modifier.fillMaxWidth()
-                .background(when { sel -> Skin.accent.copy(alpha = .16f); pressed -> veil(.05f); else -> Color.Transparent }, RoundedCornerShape(14.dp))
+                .background(if (pressed) veil(.06f) else Color.Transparent, RoundedCornerShape(14.dp))
                 .padding(horizontal = 16.dp, vertical = 13.dp),
             verticalAlignment = Alignment.CenterVertically,
             horizontalArrangement = Arrangement.spacedBy(6.dp),

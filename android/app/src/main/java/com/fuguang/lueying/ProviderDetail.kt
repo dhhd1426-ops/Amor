@@ -19,7 +19,6 @@ import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.CircleShape
-import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
@@ -64,11 +63,11 @@ private fun DetailTabs(tab: Int, onTab: (Int) -> Unit) {
             .background(CardWell, RoundedCornerShape(13.dp)).padding(3.dp),
     ) {
         val half = maxWidth / 2
-        Box(Modifier.fillMaxHeight().width(half).graphicsLayer { translationX = x * half.toPx() }.background(veil(.08f), RoundedCornerShape(10.dp)))
+        Box(Modifier.fillMaxHeight().width(half).graphicsLayer { translationX = x * half.toPx() }.background(Skin.accent, RoundedCornerShape(10.dp)))
         Row(Modifier.fillMaxSize()) {
             listOf("配置", "模型").forEachIndexed { i, t ->
                 Pressable({ onTab(i) }, Modifier.weight(1f).fillMaxHeight(), label = t) { _ ->
-                    Txt(t, if (tab == i) Page.ink else Page.muted, 14.sp, spacing = ls(4f, 14f))
+                    Txt(t, if (tab == i) Skin.onAccent else Page.muted, 14.sp, spacing = ls(4f, 14f))
                 }
             }
         }

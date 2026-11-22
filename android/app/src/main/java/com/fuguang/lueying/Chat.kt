@@ -35,7 +35,6 @@ import androidx.compose.foundation.layout.widthIn
 import androidx.compose.foundation.layout.windowInsetsPadding
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.CircleShape
-import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.text.BasicText
 import androidx.compose.foundation.text.BasicTextField
 import androidx.compose.foundation.verticalScroll
@@ -1211,7 +1210,7 @@ private fun Conversation(
                 label = "回到最新",
             ) { _ ->
                 Box(
-                    Modifier.size(40.dp).background(Skin.tint(.88f), CircleShape).border(1.dp, Page.line, CircleShape),
+                    Modifier.size(40.dp).background(Skin.tint(.88f), CircleShape),
                     contentAlignment = Alignment.Center,
                 ) { SvgIcon(ChatIcons.down, Page.ink, 18.dp) }
             }
@@ -1225,8 +1224,7 @@ fun UserBubble(raw: String, compact: Boolean, modifier: Modifier = Modifier) {
     val text = AssistantExt.applyRegex(AssistantExt.of(Memory.active), raw, false, AssistantExt.Target.VISUAL)
     Box(
         modifier.widthIn(max = if (compact) 300.dp else 460.dp)
-            .background(veil(.08f), RoundedCornerShape(18.dp))
-            .border(1.dp, veil(.1f), RoundedCornerShape(18.dp))
+            .background(veil(.1f), RoundedCornerShape(18.dp))
             .padding(horizontal = 16.dp, vertical = 11.dp),
     ) { BasicText(userLinks(text), style = TextStyle(fontFamily = Sans, color = Page.ink, fontSize = 15.sp, lineHeight = 24.sp)) }
 }
@@ -1247,8 +1245,7 @@ private fun SmallButton(text: String, onClick: () -> Unit) {
     Pressable(onClick, label = text) { pressed ->
         Txt(
             text, Page.ink, 13.sp,
-            Modifier.background(veil(if (pressed) .14f else .07f), RoundedCornerShape(50))
-                .border(1.dp, Page.line, RoundedCornerShape(50)).padding(horizontal = 16.dp, vertical = 8.dp),
+            Modifier.background(veil(if (pressed) .16f else .09f), RoundedCornerShape(50)).padding(horizontal = 16.dp, vertical = 8.dp),
         )
     }
 }
@@ -1546,7 +1543,7 @@ private class InputFold {
     var dock by mutableFloatStateOf(0f)
     var focused by mutableStateOf(false)
     val over: Float get() = open - open.coerceIn(0f, 1f)
-    fun shape(): RoundedCornerShape {
+    fun shape(): androidx.compose.ui.graphics.Shape {
         val o = open.coerceIn(0f, 1f)
         // 一行胶囊 27 → 展开成块 22，下面两角不再压平
         return RoundedCornerShape((27f - 5f * o).dp)

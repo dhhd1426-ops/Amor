@@ -35,7 +35,6 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.layout.wrapContentWidth
-import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.Stable
@@ -181,7 +180,7 @@ fun MorphPill(
         primary -> Skin.accent.copy(alpha = .9f)
         float && !idle -> Skin.pop
         quiet && idle -> Color.Transparent
-        else -> veil(if (m.look == Morph.Look.Busy) .08f else .06f)
+        else -> veil(if (m.look == Morph.Look.Busy) .11f else .09f)
     }
     val tintC = when (m.look) {
         Morph.Look.Ok -> if (primary) Color.Transparent else Skin.accent.copy(alpha = .16f)
@@ -191,8 +190,7 @@ fun MorphPill(
     val edgeC = when {
         m.look == Morph.Look.Ok && !primary -> Skin.accent.copy(alpha = .45f)
         m.look == Morph.Look.Bad -> Skin.danger.copy(alpha = .45f)
-        primary || (quiet && idle) -> Color.Transparent
-        else -> Page.line
+        else -> Color.Transparent
     }
     val inkC = when {
         m.look == Morph.Look.Bad -> Skin.danger

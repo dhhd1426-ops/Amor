@@ -49,7 +49,6 @@ import androidx.compose.foundation.layout.widthIn
 import androidx.compose.foundation.layout.windowInsetsPadding
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.CircleShape
-import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.text.BasicTextField
 import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.animation.togetherWith
@@ -305,11 +304,11 @@ private fun PillButton(text: String, icon: Ic?, primary: Boolean, enabled: Boole
         val fill = when {
             !enabled -> veil(.05f)
             primary -> Skin.accent.copy(alpha = if (pressed) .7f else .9f)
-            else -> veil(if (pressed) .12f else .06f)
+            else -> veil(if (pressed) .14f else .08f)
         }
         val ink = when { !enabled -> Page.muted.copy(alpha = .5f); primary -> Skin.onAccent; else -> Page.ink }
         Row(
-            Modifier.background(fill, RoundedCornerShape(50)).border(1.dp, if (primary && enabled) Color.Transparent else Page.line, RoundedCornerShape(50))
+            Modifier.background(fill, RoundedCornerShape(50))
                 .padding(horizontal = 20.dp, vertical = 12.dp),
             verticalAlignment = Alignment.CenterVertically,
             horizontalArrangement = Arrangement.Center,
@@ -355,14 +354,14 @@ private fun SegTabs(tabs: List<String>, pager: androidx.compose.foundation.pager
         Box(
             Modifier.graphicsLayer { translationX = pos * tw }
                 .width(with(d) { tw.toDp() }).height(38.dp)
-                .background(veil(.10f), RoundedCornerShape(12.dp)),
+                .background(Skin.accent, RoundedCornerShape(12.dp)),
         )
         Row(Modifier.fillMaxWidth()) {
             tabs.forEachIndexed { i, t ->
                 val near = (1f - kotlin.math.abs(pos - i)).coerceIn(0f, 1f)
                 Pressable({ onPick(i) }, Modifier.weight(1f), label = t) { _ ->
                     Box(Modifier.fillMaxWidth().height(38.dp), contentAlignment = Alignment.Center) {
-                        Txt(t, androidx.compose.ui.graphics.lerp(Page.muted, Page.ink, near), 14.sp, maxLines = 1)
+                        Txt(t, androidx.compose.ui.graphics.lerp(Page.muted, Skin.onAccent, near), 14.sp, maxLines = 1)
                     }
                 }
             }
@@ -1479,7 +1478,7 @@ private fun ModelFold(store: AssistantStore, p: Provider, models: List<String>, 
                             else { store.use(p.id, m); scope.launch { kotlinx.coroutines.delay(260); onOpen(false) } }
                         }, Modifier.fillMaxWidth(), label = "让 ${Memory.active.name} 用 $m") { pr ->
                             val f by androidx.compose.animation.animateColorAsState(
-                                when { pr -> Skin.well(.34f); inUse -> Skin.accent.copy(alpha = .14f); else -> wellFill }, tween(if (pr) 80 else 220), label = "mrow",
+                                if (pr) Skin.well(.34f) else wellFill, tween(if (pr) 80 else 220), label = "mrow",
                             )
                             Row(Modifier.fillMaxWidth().height(50.dp).background(f, shape).padding(start = 14.dp, end = 12.dp), verticalAlignment = Alignment.CenterVertically) {
                                 Txt(m, Page.ink, 14.sp, Modifier.weight(1f), family = androidx.compose.ui.text.font.FontFamily.Monospace, maxLines = 1)
