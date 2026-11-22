@@ -189,8 +189,12 @@ private fun Meta(c: Clip) {
     }
 }
 
-/** 图文那种：有图也有一大段字。「取文字」只在这种时候出现。 */
-internal fun hasText(i: Douyin.Item?): Boolean = i != null && i.images.isNotEmpty() && i.desc.isNotBlank()
+/**
+ * 有一大段字可取的：带「图文」标的（一张图或多张图配长文），或者不管什么类型、正文明显比标题长的（分了段，或 80 字以上）。
+ * 只按「有没有图」认不全：有的图文抖音当成视频给，图是空的，字却是整篇。
+ */
+internal fun hasText(i: Douyin.Item?): Boolean =
+    i != null && i.desc.isNotBlank() && (i.images.isNotEmpty() || i.desc.length >= 80 || i.desc.trim().lines().count { it.isNotBlank() } > 1)
 
 /** 取文字：整段正文放进剪贴板，返回多少个字。 */
 internal fun copyText(ctx: Context, i: Douyin.Item): Int {
