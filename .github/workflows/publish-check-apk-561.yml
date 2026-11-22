@@ -1,0 +1,31 @@
+name: Publish check APK 561
+
+on:
+  push:
+    branches: [release/check-apk-561]
+
+permissions:
+  actions: read
+  contents: write
+
+jobs:
+  publish:
+    runs-on: ubuntu-latest
+    env:
+      GH_TOKEN: ${{ github.token }}
+      GH_REPO: ${{ github.repository }}
+    steps:
+      - name: Verify and publish the existing APK
+        shell: bash
+        run: |
+          set -euo pipefail
+          gh api "repos/$GH_REPO/actions/artifacts/14751808058/zip" > artifact.zip
+          echo "40c063d0f0da51f9ba6728c63f85bf7c35d3fb691122931ade9ce154f4ae6532  artifact.zip" | sha256sum -c
+          unzip -l artifact.zip
+          unzip -p artifact.zip fuguang-lueying-561.apk > fuguang-lueying-561.apk
+          test -s fuguang-lueying-561.apk
+          unzip -tq fuguang-lueying-561.apk
+          gh release create app-build-561 fuguang-lueying-561.apk \
+            --target f5c366bfb4f1537e6c8ef0fab09d851741b001c3 --prerelease \
+            --title "浮光掠影 App 第 561 版" \
+            --notes "备份长条加「恢复」，打包补全（语音、鲸鱼娘、登录）并去掉临时文件；记忆长按加星 / 取消星；抖音图文「取文字」；底部撤销条点空白就收。构建记录：https://github.com/dhhd1426-ops/Amor/actions/runs/45016070923"
