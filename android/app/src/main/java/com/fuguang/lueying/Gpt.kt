@@ -104,6 +104,8 @@ object Gpt {
     @Volatile private var prev = ""
     @Volatile private var lastHeaders = ""
     @Volatile private var lastChat = ""
+    @Volatile private var lastTiming = ""
+    @Volatile private var lastSent = ""
     private var ver = "?"
 
     @Synchronized
@@ -204,6 +206,9 @@ object Gpt {
     fun login() {
         if (phase.isNotEmpty()) return
         phase = "wait"; loginDiag = ""
+        // 人马上要去浏览器，Amor 进后台会被系统冻住，回调端口没人应（第 563 版真机上就卡在这）：登录这段时间挂着常驻服务
+        PactKeeper.hold = true
+        runCatching { PactKeeper.sync(app) }
         loginJob = scope.launch { runLogin() }
     }
 
@@ -284,7 +289,11 @@ object Gpt {
             withContext(Dispatchers.Main) { loginDiag = text }
         } finally {
             runCatching { server?.close() }
-            withContext(kotlinx.coroutines.NonCancellable + Dispatchers.Main) { phase = "" }
+            withContext(kotlinx.coroutines.NonCancellable + Dispatchers.Main) {
+                phase = ""
+                PactKeeper.hold = false
+                runCatching { PactKeeper.sync(app) }
+            }
         }
     }
 
@@ -292,35 +301,45 @@ object Gpt {
 
     private fun listen(): ServerSocket {
         val lo = InetAddress.getByName("127.0.0.1")
-        return runCatching { ServerSocket(PORT, 4, lo) }.getOrElse { ServerSocket(0, 4, lo) }.apply { soTimeout = 1000 }
+        return runCatching { ServerSocket(PORT, 8, lo) }.getOrElse { ServerSocket(0, 8, lo) }.apply { soTimeout = 250 }
     }
 
-    /** 等浏览器跳回来的那一次请求；别的请求（图标之类）回 404 接着等。最多等 10 分钟。 */
+    /**
+     * 等浏览器跳回来的那一次请求；别的请求（图标之类）回 404 接着等。最多等 10 分钟。
+     * 每条连接各用一个线程：浏览器常先开一条不发数据的预连接，排着队处理的话真正那条要干等它超时。
+     */
     private suspend fun await(server: ServerSocket, state: String): Map<String, String> {
+        val got = java.util.concurrent.LinkedBlockingQueue<Map<String, String>>()
         val until = System.currentTimeMillis() + 600_000
         while (System.currentTimeMillis() < until) {
             coroutineContext.ensureActive()
+            got.poll()?.let { return it }
             val s = try { server.accept() } catch (_: SocketTimeoutException) { continue }
-            try {
-                s.soTimeout = 5000
-                val rd = s.getInputStream().bufferedReader(Charsets.ISO_8859_1)
-                val first = rd.readLine().orEmpty()
-                while (true) { val l = rd.readLine() ?: break; if (l.isEmpty()) break }
-                val target = first.split(" ").getOrNull(1).orEmpty()
-                val q = target.substringAfter('?', "").split("&").filter { it.contains('=') }
-                    .associate { URLDecoder.decode(it.substringBefore('='), "UTF-8") to URLDecoder.decode(it.substringAfter('='), "UTF-8") }
-                val ok = first.startsWith("GET ") && target.substringBefore('?') == CALLBACK && q["state"] == state
-                val body = if (ok) PAGE else "Not found"
-                val bytes = body.toByteArray(Charsets.UTF_8)
-                s.getOutputStream().apply {
-                    write(("HTTP/1.1 ${if (ok) "200 OK" else "404 Not Found"}\r\nContent-Type: ${if (ok) "text/html" else "text/plain"}; charset=utf-8\r\nContent-Length: ${bytes.size}\r\nCache-Control: no-store\r\nReferrer-Policy: no-referrer\r\nConnection: close\r\n\r\n").toByteArray(Charsets.US_ASCII))
-                    write(bytes); flush()
-                }
-                if (ok) return q
-            } catch (_: java.io.IOException) {
-            } finally { runCatching { s.close() } }
+            Thread { serve(s, state)?.let { got.offer(it) } }.apply { isDaemon = true }.start()
         }
         throw Stop("等了 10 分钟浏览器没跳回来")
+    }
+
+    /** 应答一条连接；是那次回调就返回它带的参数。 */
+    private fun serve(s: java.net.Socket, state: String): Map<String, String>? {
+        try {
+            s.soTimeout = 5000
+            val rd = s.getInputStream().bufferedReader(Charsets.ISO_8859_1)
+            val first = rd.readLine().orEmpty()
+            while (true) { val l = rd.readLine() ?: break; if (l.isEmpty()) break }
+            val target = first.split(" ").getOrNull(1).orEmpty()
+            val q = target.substringAfter('?', "").split("&").filter { it.contains('=') }
+                .associate { URLDecoder.decode(it.substringBefore('='), "UTF-8") to URLDecoder.decode(it.substringAfter('='), "UTF-8") }
+            val ok = first.startsWith("GET ") && target.substringBefore('?') == CALLBACK && q["state"] == state
+            val bytes = (if (ok) PAGE else "Not found").toByteArray(Charsets.UTF_8)
+            s.getOutputStream().apply {
+                write(("HTTP/1.1 ${if (ok) "200 OK" else "404 Not Found"}\r\nContent-Type: ${if (ok) "text/html" else "text/plain"}; charset=utf-8\r\nContent-Length: ${bytes.size}\r\nCache-Control: no-store\r\nReferrer-Policy: no-referrer\r\nConnection: close\r\n\r\n").toByteArray(Charsets.US_ASCII))
+                write(bytes); flush()
+            }
+            return if (ok) q else null
+        } catch (_: java.io.IOException) {
+            return null
+        } finally { runCatching { s.close() } }
     }
 
     private val PAGE get() = "<!doctype html><html lang=\"zh\"><meta charset=\"utf-8\"><meta name=\"viewport\" content=\"width=device-width,initial-scale=1\"><title>回到 Amor</title>" +
@@ -440,15 +459,24 @@ object Gpt {
     /** 记下这次回包的头（不含 cookie）：官方没说带不带额度，真机上看一眼才知道。 */
     fun seen(conn: HttpURLConnection) {
         lastHeaders = runCatching {
-            conn.headerFields.entries.filter { (k, _) -> k != null && !k.equals("set-cookie", true) && (k.startsWith("x-", true) || k.contains("ratelimit", true) || k.contains("openai", true) || k.equals("retry-after", true)) }
+            conn.headerFields.entries.filter { (k, _) -> k != null && !k.equals("set-cookie", true) && !k.startsWith("x-android-", true) && (k.startsWith("x-", true) || k.contains("ratelimit", true) || k.contains("openai", true) || k.equals("retry-after", true)) }
                 .joinToString("\n") { (k, v) -> "${k.lowercase()}: ${v.joinToString(",").take(160)}" }
         }.getOrDefault("")
     }
 
+    /** 这次请求的编号：真机上回的是 x-oai-request-id（第 563 版诊断里看到的），文档里写的 x-request-id 也认。 */
+    private fun reqId(conn: HttpURLConnection): String = conn.getHeaderField("x-oai-request-id") ?: conn.getHeaderField("x-request-id") ?: ""
+
+    /** 记下聊天刚发出去的那一份的样子（不含内容）。 */
+    internal fun sent(wire: JSONObject): JSONObject { lastSent = runCatching { GptWire.shape(wire) }.getOrDefault(""); return wire }
+
+    /** 记下刚收完的这一次回复花在哪（诊断里看慢在等她想，还是慢在网络）。 */
+    internal fun timed(model: String, effort: String, ev: GptWire.Events) { lastTiming = "$model · 思考档 ${effort.ifBlank { "没写（模型自己定）" }}\n" + ev.timing }
+
     /** 聊天这条路被拒了：返回给聊天页看的一句话，细节记进诊断。 */
     fun chatError(code: Int, body: String, conn: HttpURLConnection, model: String): String {
         val (c, m) = errorOf(body)
-        lastChat = "聊天 · $model\nHTTP $code  $c\n${m.take(300)}\nparam  ${paramOf(body)}\nrequest-id  ${conn.getHeaderField("x-request-id").orEmpty()}"
+        lastChat = "聊天 · $model\nHTTP $code  $c\n${m.take(300)}\nparam  ${paramOf(body)}\nrequest-id  ${reqId(conn)}"
         return human(code, c)
     }
 
@@ -504,6 +532,10 @@ object Gpt {
                 "注册  ${if (clientId.isEmpty()) "还没有" else "有"} · host ${hostId.takeLast(8)}",
                 "—— 最近一次回包的头 ——",
                 lastHeaders.ifEmpty { "（还没发过请求）" },
+                "—— 最近一次聊天发出去的 ——",
+                lastSent.ifEmpty { "（还没聊过）" },
+                "—— 最近一次回复花的时间 ——",
+                lastTiming.ifEmpty { "（还没聊过）" },
                 "—— 最近一次聊天出错 ——",
                 lastChat.ifEmpty { "（没有）" },
             ),
@@ -547,7 +579,7 @@ object Gpt {
             val code = conn.responseCode
             if (bearer != null) seen(conn)
             val body = (if (code in 200..299) conn.inputStream else conn.errorStream)?.bufferedReader(Charsets.UTF_8)?.use { it.readText() }.orEmpty()
-            return Http(code, body, conn.getHeaderField("x-request-id").orEmpty())
+            return Http(code, body, reqId(conn))
         } finally { runCatching { conn.disconnect() } }
     }
 

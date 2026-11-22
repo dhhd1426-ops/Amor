@@ -105,7 +105,13 @@ class PactKeeper : Service() {
          * 要不要常驻（第 562 版起能自己开关，「我的 › 定时任务」）：prefs `keep-on` 是 "1" 就一直在，"0" 就不在；
          * 没设过的照以前：有约定才在。
          */
-        fun wanted(ctx: Context): Boolean = when (Prefs(ctx).string("keep-on")) { "1" -> true; "0" -> false; else -> Pacts.all.isNotEmpty() }
+        fun wanted(ctx: Context): Boolean = hold || when (Prefs(ctx).string("keep-on")) { "1" -> true; "0" -> false; else -> Pacts.all.isNotEmpty() }
+
+        /**
+         * 临时得留在后台的事：这段时间不管开关都常驻，完了改回 false 再 [sync]。
+         * 现在只有 GPT 控制台登录在用（Gpt.login）：人去了浏览器，Amor 在后台会被系统冻住，本机回调端口连得上却没人应，浏览器就一直转圈。
+         */
+        @Volatile var hold = false
 
         fun sync(ctx: Context) {
             val k = live

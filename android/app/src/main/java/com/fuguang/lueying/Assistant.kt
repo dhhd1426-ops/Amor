@@ -814,7 +814,7 @@ object ChatApi {
             // 助理的自定义 Body 最后合进去，能盖掉上面写的（Kelivo CustomRequestMerger）
             ax?.let { AssistantExt.mergeBody(it, body) }
             ModelFit.strip(p.id, model, body)
-            conn.outputStream.use { it.write((if (gpt) GptWire.request(body) else body).toString().toByteArray()) }
+            conn.outputStream.use { it.write((if (gpt) Gpt.sent(GptWire.request(body)) else body).toString().toByteArray()) }
 
             val code = conn.responseCode
             accepted = code in 200..299
@@ -857,7 +857,7 @@ object ChatApi {
                 while (true) {
                     ensureActive()
                     // Responses 的流没有 [DONE] 那一行：收到 response.completed 就是完了
-                    if (gw?.done == true) break
+                    if (gw?.done == true) { Gpt.timed(model, body.optString("reasoning_effort"), gw); break }
                     val line = r.readLine() ?: break
                     if (!line.startsWith("data:")) continue
                     val data = line.removePrefix("data:").trim()

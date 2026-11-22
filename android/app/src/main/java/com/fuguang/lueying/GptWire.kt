@@ -64,6 +64,18 @@ internal object GptWire {
         return out.put("store", false).put("stream", true)
     }
 
+    /** 发出去的这一份长什么样（给诊断看：说明、往来、工具到底带没带上）。不含内容本身。 */
+    fun shape(wire: JSONObject): String {
+        val ins = wire.optString("instructions")
+        val input = wire.optJSONArray("input") ?: JSONArray()
+        val kinds = (0 until input.length()).mapNotNull { input.optJSONObject(it) }.groupingBy { it.optString("type").ifBlank { it.optString("role") } }.eachCount()
+        val fs = wire.optJSONArray("tools")?.optJSONObject(0)?.optJSONArray("tools")
+        val names = fs?.let { a -> (0 until a.length()).mapNotNull { a.optJSONObject(it)?.optString("name") } }.orEmpty()
+        return "说明 ${ins.length} 字（记忆那段${if ("一直记着" in ins) "在" else "不在"}里面）· 往来 ${input.length()} 条 " + kinds.entries.joinToString(" ") { "${it.key}×${it.value}" } +
+            "\n工具 ${names.size} 个" + (if (names.isNotEmpty()) "：" + names.joinToString(" ") else "") +
+            (wire.optJSONObject("reasoning")?.let { "\n思考档 " + it.optString("effort") } ?: "\n思考档 没写")
+    }
+
     /** 一次不带工具的问答（测试模型、整理记忆、看图）。content：一句话，或 Chat Completions 的内容块数组。 */
     fun ask(model: String, system: String, content: Any): JSONObject {
         val out = JSONObject().put("model", model)
@@ -107,6 +119,16 @@ internal object GptWire {
         private val fed = HashSet<Int>()
         private var parts = 0
 
+        // 这一次回复花在哪（给诊断看）：从建这个对象算起，到开始想、到第一个字、到收完各多少毫秒；吃进吐出多少、其中多少是缓存里的
+        private val t0 = System.currentTimeMillis()
+        private var thinkAt = 0L
+        private var textAt = 0L
+        private var doneAt = 0L
+        private var usage = ""
+        val timing: String
+            get() = "她叫工具 ${slot.size} 次 · 开始想 ${if (thinkAt > 0) "${thinkAt - t0}ms" else "—"} · 第一个字 ${if (textAt > 0) "${textAt - t0}ms" else "—"} · 收完 ${if (doneAt > 0) "${doneAt - t0}ms" else "—"}" +
+                (if (usage.isNotEmpty()) "\n$usage" else "")
+
         private fun chunk(delta: JSONObject, finish: String? = null) =
             JSONObject().put("choices", JSONArray().put(JSONObject().put("index", 0).put("delta", delta).put("finish_reason", finish ?: JSONObject.NULL)))
 
@@ -123,10 +145,12 @@ internal object GptWire {
 
         fun map(e: JSONObject): JSONObject? {
             when (e.optString("type")) {
-                "response.output_text.delta" -> return e.optString("delta").takeIf { it.isNotEmpty() }?.let { chunk(JSONObject().put("content", it)) }
+                "response.output_text.delta" -> { if (textAt == 0L) textAt = System.currentTimeMillis(); return e.optString("delta").takeIf { it.isNotEmpty() }?.let { chunk(JSONObject().put("content", it)) } }
                 "response.reasoning_summary_part.added" -> return if (parts++ > 0) chunk(JSONObject().put("reasoning_content", "\n\n")) else null
-                "response.reasoning_summary_text.delta", "response.reasoning_text.delta" ->
+                "response.reasoning_summary_text.delta", "response.reasoning_text.delta" -> {
+                    if (thinkAt == 0L) thinkAt = System.currentTimeMillis()
                     return e.optString("delta").takeIf { it.isNotEmpty() }?.let { chunk(JSONObject().put("reasoning_content", it)) }
+                }
                 "response.output_item.added" -> {
                     val item = e.optJSONObject("item") ?: return null
                     if (item.optString("type") != "function_call") return null
@@ -153,7 +177,9 @@ internal object GptWire {
                 }
                 "response.completed" -> {
                     done = true
+                    doneAt = System.currentTimeMillis()
                     val u = e.optJSONObject("response")?.optJSONObject("usage")
+                    if (u != null) usage = "吃进 ${u.optLong("input_tokens")}（缓存 ${u.optJSONObject("input_tokens_details")?.optLong("cached_tokens") ?: 0}）· 吐出 ${u.optLong("output_tokens")}（想 ${u.optJSONObject("output_tokens_details")?.optLong("reasoning_tokens") ?: 0}）"
                     val out = chunk(JSONObject(), if (slot.isEmpty()) "stop" else "tool_calls")
                     if (u != null) out.put(
                         "usage",
