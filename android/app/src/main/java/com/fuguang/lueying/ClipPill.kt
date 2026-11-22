@@ -109,7 +109,12 @@ private fun Cover(c: Clip) {
 @Composable
 private fun Body(c: Clip, act: Activity?, onAsk: () -> Unit) {
     val i = c.item
+    val ctx = LocalContext.current
+    // 取文字：复制完顶上那行说一声，2 秒后变回去
+    var copied by remember(c) { mutableStateOf(0) }
+    LaunchedEffect(copied) { if (copied > 0) { kotlinx.coroutines.delay(2000); copied = 0 } }
     val kicker = when {
+        copied > 0 -> "文字已复制 · $copied 字"
         c.save == 1 -> "正在存 ${(c.frac * 100).toInt()}%"
         c.save == 3 -> "没成：" + c.saveWhy
         i == null && c.parse == 0 -> "剪贴板里有一条抖音，正在认"
@@ -133,6 +138,7 @@ private fun Body(c: Clip, act: Activity?, onAsk: () -> Unit) {
         else -> Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
             val n = i?.images?.size ?: 0
             Btn(if (c.save == 3) "再试一次" else if (n > 0) "存 $n 张原图" else "存下来", true, enabled = i != null || c.parse == 2) { c.pick = 0; VideoStore.save(c, act, 0) }
+            if (i != null && hasText(i)) Btn("取文字", false) { copied = copyText(ctx, i) }
             Btn("让她看看", false, onClick = onAsk)
         }
     }

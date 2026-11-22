@@ -142,7 +142,8 @@ object Douyin {
         return Item(
             id = id,
             title = o.optString("desc").lineSequence().firstOrNull()?.trim().orEmpty().ifBlank { "抖音作品" }.take(60),
-            desc = o.optString("desc").trim().take(2000),
+            // 图文的正文常常上千字：留够，「取文字」要拿全
+            desc = o.optString("desc").trim().take(8000),
             author = o.optJSONObject("author")?.optString("nickname").orEmpty(),
             cover = first(v?.optJSONObject("cover")?.optJSONArray("url_list")) ?: first(v?.optJSONObject("origin_cover")?.optJSONArray("url_list")) ?: imgs.firstOrNull(),
             seconds = if (ms > 1000) ms / 1000 else ms,

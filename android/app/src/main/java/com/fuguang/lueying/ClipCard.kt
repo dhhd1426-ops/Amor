@@ -189,9 +189,22 @@ private fun Meta(c: Clip) {
     }
 }
 
+/** 图文那种：有图也有一大段字。「取文字」只在这种时候出现。 */
+internal fun hasText(i: Douyin.Item?): Boolean = i != null && i.images.isNotEmpty() && i.desc.isNotBlank()
+
+/** 取文字：整段正文放进剪贴板，返回多少个字。 */
+internal fun copyText(ctx: Context, i: Douyin.Item): Int {
+    val cm = ctx.getSystemService(Context.CLIPBOARD_SERVICE) as? android.content.ClipboardManager ?: return 0
+    runCatching { cm.setPrimaryClip(android.content.ClipData.newPlainText(i.title, i.desc)) }
+    return i.desc.length
+}
+
 @Composable
 private fun Picks(c: Clip) {
     val i = c.item ?: return
+    val ctx = LocalContext.current
+    var copied by remember(c) { mutableStateOf(false) }
+    LaunchedEffect(copied) { if (copied) { kotlinx.coroutines.delay(1600); copied = false } }
     val opts = if (i.images.isNotEmpty()) listOf("${i.images.size} 张原图" to 0, "封面" to 2) else listOf("无水印 · 720p" to 0, "只要声音" to 1, "封面" to 2)
     Row(Modifier.padding(start = 12.dp, end = 12.dp, top = 8.dp), horizontalArrangement = Arrangement.spacedBy(6.dp)) {
         opts.forEach { (label, k) ->
@@ -201,6 +214,11 @@ private fun Picks(c: Clip) {
                 fill = if (on) ClipWarm.copy(alpha = .18f) else veil(.07f), pressedFill = veil(.12f), pressScale = .95f, label = label,
             ) { Txt(label, if (on) ClipWarm else Page.muted, 11.5.sp, Modifier.padding(horizontal = 10.dp)) }
         }
+        // 取文字不是「存哪一种」，点了当场复制
+        if (hasText(i)) PressSurface(
+            { copyText(ctx, i); copied = true }, Modifier.height(26.dp),
+            fill = if (copied) ClipWarm.copy(alpha = .18f) else veil(.07f), pressedFill = veil(.12f), pressScale = .95f, label = "取文字",
+        ) { Txt(if (copied) "文字已复制" else "取文字", if (copied) ClipWarm else Page.muted, 11.5.sp, Modifier.padding(horizontal = 10.dp)) }
     }
 }
 
