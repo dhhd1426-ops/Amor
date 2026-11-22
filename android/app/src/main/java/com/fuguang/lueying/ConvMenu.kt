@@ -95,7 +95,7 @@ object ConvMenu {
 
 private val shareIc = Ic("M12 15V4M8 8l4-4 4 4M5 12v6.5A1.5 1.5 0 0 0 6.5 20h11a1.5 1.5 0 0 0 1.5-1.5V12")
 private val renameIc = Ic("M14.5 5.5l4 4M5 19l1-4.5L15.5 5a1.4 1.4 0 0 1 2 0l1.5 1.5a1.4 1.4 0 0 1 0 2L9.5 18z")
-private const val STAR = "M12 3.8l2.5 5.1 5.6.8-4 3.9.9 5.6L12 16.6l-5 2.6.9-5.6-4-3.9 5.6-.8z"
+internal const val STAR = "M12 3.8l2.5 5.1 5.6.8-4 3.9.9 5.6L12 16.6l-5 2.6.9-5.6-4-3.9 5.6-.8z"
 private val starIc = Ic(STAR)
 private val pinIc = Ic("M14.5 4l5.5 5.5-2.5.8-3.3 3.3-.6 3.9L7.5 11.4l3.9-.6 3.3-3.3zM9.5 14.5L4.5 19.5")
 private val outlineIc = Ic("M9 6h11M9 12h11M9 18h11M4.5 5.3a.7.7 0 1 1 0 1.4.7.7 0 0 1 0-1.4ZM4.5 11.3a.7.7 0 1 1 0 1.4.7.7 0 0 1 0-1.4ZM4.5 17.3a.7.7 0 1 1 0 1.4.7.7 0 0 1 0-1.4Z")

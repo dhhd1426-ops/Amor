@@ -267,6 +267,20 @@ object Memory {
         save()
     }
 
+    /**
+     * 记忆本长按「加星 / 取消星」。星 = 一直记着（人和规矩）：正文一直带在她身上，不按时间收拢；
+     * 没星 = 聊过的事：她身上只有标题，用到才翻正文，过后收进周、月、年。
+     * 加星先归到「关于你」（要换类别在「编辑」里换）；取消星退回「聊过的」，常驻也一起取消。算你改的。周月年那几份不能加星。
+     */
+    fun star(p: Persona, id: String, on: Boolean) {
+        val i = p.items.indexOfFirst { it.id == id }
+        if (i < 0) return
+        val o = p.items[i]
+        if (o.span || o.rule == on) return
+        p.items[i] = if (on) o.copy(kind = "about", by = "you", under = "") else o.copy(kind = "know", by = "you", pin = false)
+        save()
+    }
+
     /** 你在记忆页加一条，标签随你选（内置的或自己起的）。 */
     fun note(p: Persona, kind: String, text: String): Mem? {
         val t = hers(text.trim())
