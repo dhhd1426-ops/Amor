@@ -1,0 +1,31 @@
+name: Publish check APK 560
+
+on:
+  push:
+    branches: [release/check-apk-560]
+
+permissions:
+  actions: read
+  contents: write
+
+jobs:
+  publish:
+    runs-on: ubuntu-latest
+    env:
+      GH_TOKEN: ${{ github.token }}
+      GH_REPO: ${{ github.repository }}
+    steps:
+      - name: Verify and publish the existing APK
+        shell: bash
+        run: |
+          set -euo pipefail
+          gh api "repos/$GH_REPO/actions/artifacts/14749682759/zip" > artifact.zip
+          echo "6c7eed781fa9993e28f174b04c9177f3b6cec291a1529727f01ba7ab590bed10  artifact.zip" | sha256sum -c
+          unzip -l artifact.zip
+          unzip -p artifact.zip fuguang-lueying-560.apk > fuguang-lueying-560.apk
+          test -s fuguang-lueying-560.apk
+          unzip -tq fuguang-lueying-560.apk
+          gh release create app-build-560 fuguang-lueying-560.apk \
+            --target 59a9d3328383abe1c395c5e1dca64a2c37970d7f --prerelease \
+            --title "浮光掠影 App 第 560 版" \
+            --notes "删掉 Telegram 模块；顶上的剪贴板长条照苹果横幅重做：弹簧落下、6 秒自己收、能上滑甩走、点空白收走、换一条时旧的退后淡掉。构建记录：https://github.com/dhhd1426-ops/Amor/actions/runs/45010202468"
