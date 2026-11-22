@@ -171,7 +171,7 @@ private fun ProviderListPane(state: ProviderCardState, store: AssistantStore) {
         CardHeader("模型供应商", null)
         CardField(state.query, { state.query = it }, "搜索供应商", Modifier.padding(start = 12.dp, end = 12.dp, bottom = 10.dp))
         val q = state.query.trim()
-        val list = store.ordered().filter { q.isEmpty() || it.name.contains(q, true) || store.config(it.id).name.contains(q, true) }
+        val list = store.ordered().filter { it.id != Gpt.ID && (q.isEmpty() || it.name.contains(q, true) || store.config(it.id).name.contains(q, true)) }
         var viewport by remember { mutableIntStateOf(0) }
         Column(
             Modifier.weight(1f).fillMaxWidth().onSizeChanged { viewport = it.height }

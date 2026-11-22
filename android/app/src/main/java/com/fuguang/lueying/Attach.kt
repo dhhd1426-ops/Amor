@@ -54,7 +54,7 @@ object Attach {
      * 她这个型号自己能不能看图。DeepSeek：2026-09 起 deepseek-flash 本身就收图（官方 Vision 文档，image_url，只能放在 user 消息里），
      * 原来的 deepseek-v4-flash-vision-exp 已退役；deepseek-v4-pro 还看不了。看不了的请 AttachLook 帮她看。
      */
-    fun vision(providerId: String, model: String = "") = providerId in setOf("claude", "openai", "gemini", "grok") ||
+    fun vision(providerId: String, model: String = "") = providerId in setOf("claude", "openai", "gemini", "grok", Gpt.ID) ||
         (providerId == "deepseek" && model.contains("flash", true)) ||
         // 千问 3.5 起的主力型号都能看图，另有 VL、Omni
         (providerId == "qwen" && Regex("qwen3\\.[5-9]|qwen[4-9]|-vl|omni|qvq").containsMatchIn(model.lowercase()) && !model.contains("coder", true))

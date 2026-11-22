@@ -85,7 +85,7 @@ private fun depth(s: String) = when {
     s == "assistant" || s == "usage" || s == "mcp" || s == "about" || s == "features" || s == "theme" || s == "wallpaper" || s == "whale" || s == "voice" -> 1
     s == "worldbook" -> 1
     s.startsWith("worldbook/") -> 2
-    s == "persona" || s == "voice/api" || s.startsWith("mcp/") || s == "search" || s == "skills" || s == "gallery" -> 2
+    s == "persona" || s == "voice/api" || s.startsWith("mcp/") || s == "search" || s == "skills" || s == "gallery" || s == "gpt" -> 2
     s.startsWith("search/") || s.startsWith("skills/") || s.startsWith("gallery/") -> 3
     s == "providers" || s == "memories" || s == "fold" -> 3
     s == "memprompt" -> 5
@@ -123,7 +123,8 @@ fun MineCardLayer(store: AssistantStore, nav: MineNav) {
             "wallpaper" -> WallpaperPage { nav.up("mine") }
             "voice" -> SpeechPage({ nav.screen = "mine" }) { nav.screen = "voice/api" }
             "voice/api" -> SpeechApiPage { nav.screen = "voice" }
-            "features" -> FeaturesPage({ nav.up("mine") }, { nav.screen = "search" }, { nav.screen = "skills" })
+            "features" -> FeaturesPage(store, { nav.up("mine") }, { nav.screen = "search" }, { nav.screen = "skills" }, { nav.screen = "gpt" })
+            "gpt" -> GptPage(store) { nav.up("features") }
             "skills" -> SkillsPage({ nav.up("features") }) { nav.screen = "skills/$it" }
             "search" -> SearchPage({ nav.up("features") }) { nav.screen = "search/$it" }
             "worldbook" -> WorldBookPage(screen, nav)

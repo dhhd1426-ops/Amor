@@ -126,6 +126,11 @@ ${unit.take(6000)}
             .put("messages", JSONArray().put(JSONObject().put("role", "user").put("content", prompt(unit, prev))))
         if (p.id == "deepseek") body.put("thinking", JSONObject().put("type", "disabled"))
         if (!anthropic) body.put("response_format", JSONObject().put("type", "json_object"))
+        if (p.id == Gpt.ID) return@withContext runCatching {
+            val text = Gpt.ask(model, "", prompt(unit, prev))
+            val a = text.indexOf('{'); val b = text.lastIndexOf('}')
+            if (a < 0 || b <= a) null else parse(JSONObject(text.substring(a, b + 1)).optJSONArray("steps") ?: JSONArray())
+        }.getOrNull()
         val base = c.base.trim().trimEnd('/')
         val url = if (anthropic) "$base/messages" else base + c.path.trim().ifEmpty { "/chat/completions" }.let { if (it.startsWith("/")) it else "/$it" }
         val conn = URL(url).openConnection() as HttpURLConnection

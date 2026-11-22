@@ -45,6 +45,8 @@ val BUILTIN_PROVIDERS = listOf(
     Provider("siliconflow", "硅基流动", "openai", "https://api.siliconflow.cn/v1", "/chat/completions", "硅"),
     // 阿里云百炼的 OpenAI 兼容接口；Key 是哪个地域开的就用哪个地域的地址（QwenSearch.REGIONS）
     Provider("qwen", "通义千问", "openai", "https://dashscope.aliyuncs.com/compatible-mode/v1", "/chat/completions", "千", note = "阿里云百炼"),
+    // 用 ChatGPT 账号的套餐额度（Gpt.kt）：没有 Key，登录在「功能 › GPT 控制台」；不出现在供应商设置里
+    Provider(Gpt.ID, "ChatGPT", "openai", Gpt.BASE, "/responses", "G", note = "账号套餐"),
 )
 
 /** 用户自己加的供应商；AssistantStore 读写。 */
@@ -149,6 +151,8 @@ class AssistantStore(private val prefs: Prefs) {
             }
         }
         if (recent.isEmpty()) recent.add("$activeProvider|$activeModel")
+        // ChatGPT 这一家不看存下来的设置，只看 Gpt 自己的登录状态
+        Gpt.init(prefs.app); Gpt.fill(this)
     }
 
     // 思考写法按这家现在填的地址认（中转站、自建代理）
@@ -300,6 +304,7 @@ object AssistantApi {
 
     suspend fun models(p: Provider, c: ProviderConfig): Result<List<String>> = withContext(Dispatchers.IO) {
         runCatching {
+            if (p.id == Gpt.ID) return@runCatching Gpt.models.map { it.slug }
             if (c.key.isBlank()) throw IllegalStateException("先填 API Key")
             val body = read(open(trim(c.base) + "/models", c, p))
             val arr = JSONObject(body).optJSONArray("data") ?: JSONArray()
@@ -315,6 +320,7 @@ object AssistantApi {
     /** 发一条极短的消息，确认这个模型能用。 */
     suspend fun ping(p: Provider, c: ProviderConfig, model: String): Result<Unit> = withContext(Dispatchers.IO) {
         runCatching {
+            if (p.id == Gpt.ID) { Gpt.ask(model, "", "hi"); return@runCatching }
             if (c.key.isBlank()) throw IllegalStateException("先填 API Key")
             val path = c.path.trim().let { if (it.startsWith("/")) it else "/$it" }
             val conn = open(trim(c.base) + path, c, p, "POST")
@@ -644,6 +650,8 @@ object ChatApi {
 
     /** 不流式、不思考的一次问答（整理记忆用），返回正文。 */
     suspend fun complete(p: Provider, c: ProviderConfig, model: String, system: String, user: String, maxTokens: Int = 1024, think: Boolean = false): String = withContext(Dispatchers.IO) {
+        // ChatGPT 账号只收流式的 Responses 接口
+        if (p.id == Gpt.ID) return@withContext Gpt.ask(model, system, user)
         val anthropic = p.kind == "anthropic"
         val url = if (anthropic) trim(c.base) + "/messages"
         else trim(c.base) + c.path.trim().let { if (it.startsWith("/")) it else "/$it" }
@@ -734,7 +742,11 @@ object ChatApi {
         search: (() -> Unit)?,
         onText: suspend (String) -> Unit,
     ): Round = withContext(Dispatchers.IO) {
-        if (c.key.isBlank()) throw IllegalStateException("还没填 ${c.name} 的 API Key")
+        // ChatGPT 账号（Gpt.kt）：没有 Key，每次要一把没过期的访问令牌；请求和回来的事件由 GptWire 两头翻译，中间照旧
+        val gpt = p.id == Gpt.ID
+        if (!gpt && c.key.isBlank()) throw IllegalStateException("还没填 ${c.name} 的 API Key")
+        val bearer = if (gpt) Gpt.token() else c.key.trim()
+        val gw = if (gpt) GptWire.Events() else null
         val anthropic = p.kind == "anthropic"
         val url = if (anthropic) trim(c.base) + "/messages"
         else trim(c.base) + c.path.trim().let { if (it.startsWith("/")) it else "/$it" }
@@ -767,7 +779,8 @@ object ChatApi {
             if (anthropic) {
                 conn.setRequestProperty("x-api-key", c.key.trim())
                 conn.setRequestProperty("anthropic-version", "2023-06-01")
-            } else conn.setRequestProperty("Authorization", "Bearer " + c.key.trim())
+            } else conn.setRequestProperty("Authorization", "Bearer $bearer")
+            if (gpt) conn.instanceFollowRedirects = false
             val ax = ext
             ax?.let { AssistantExt.applyHeaders(it, conn) }
 
@@ -801,16 +814,22 @@ object ChatApi {
             // 助理的自定义 Body 最后合进去，能盖掉上面写的（Kelivo CustomRequestMerger）
             ax?.let { AssistantExt.mergeBody(it, body) }
             ModelFit.strip(p.id, model, body)
-            conn.outputStream.use { it.write(body.toString().toByteArray()) }
+            conn.outputStream.use { it.write((if (gpt) GptWire.request(body) else body).toString().toByteArray()) }
 
             val code = conn.responseCode
             accepted = code in 200..299
+            if (gpt) Gpt.seen(conn)
             if (accepted || code == 429) runCatching { ModelUsage.receiveLimits(usageKey, conn) }
             if (code in 200..299) tools?.onEffort?.let { report -> withContext(Dispatchers.Main) { report(lv.takeIf { sentThink && !ModelFit.drops(p.id, model, "think") }) } }
             val err = if (code !in 200..299) conn.errorStream?.bufferedReader(Charsets.UTF_8)?.use { it.readText() } ?: "" else ""
             if (QwenSearch.audited(err)) throw IllegalStateException(QwenSearch.AUDIT)
             // 内容太长了：交给聊天页整理前情再发（第 394 版）
             if (code !in 200..299) CtxWin.overflow(err)?.let { throw ContextFull(it) }
+            // ChatGPT 账号被拒：不悄悄去掉工具、思考再试（那样她会少了手却不知道），原样报出来，细节进 GPT 控制台的诊断
+            if (gpt && code !in 200..299) {
+                if (code in 500..599 || code == 408) throw StreamTransportException("服务器暂时不可用（$code）")
+                throw IllegalStateException(Gpt.chatError(code, err, conn, model))
+            }
             if (code == 400 || code == 422) {
                 // 报错点名了哪个参数：记在这个模型名下，去掉重发
                 ModelFit.blame(err, body)?.let { w ->
@@ -837,11 +856,14 @@ object ChatApi {
             conn.inputStream.bufferedReader(Charsets.UTF_8).use { r ->
                 while (true) {
                     ensureActive()
+                    // Responses 的流没有 [DONE] 那一行：收到 response.completed 就是完了
+                    if (gw?.done == true) break
                     val line = r.readLine() ?: break
                     if (!line.startsWith("data:")) continue
                     val data = line.removePrefix("data:").trim()
                     if (data == "[DONE]") { boundary.stop(); break }
-                    val o = runCatching { JSONObject(data) }.getOrNull() ?: continue
+                    val raw = runCatching { JSONObject(data) }.getOrNull() ?: continue
+                    val o = if (gw == null) raw else (try { gw.map(raw) } catch (f: GptWire.Failed) { throw IllegalStateException(Gpt.streamError(f, model)) }) ?: continue
                     if (!anthropic && o.optJSONObject("error") != null)
                         throw IllegalStateException("模型服务返回流式错误，已保留收到的内容")
                     val reported = if (anthropic && o.optString("type") == "message_start")

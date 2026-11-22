@@ -124,7 +124,7 @@ class MineNav {
             screen.startsWith("provider/") -> "providers"
             screen.startsWith("search/") -> "search"
             screen.startsWith("gallery/") -> "gallery"
-            screen == "search" || screen == "skills" || screen == "gallery" -> "features"
+            screen == "search" || screen == "skills" || screen == "gallery" || screen == "gpt" -> "features"
             screen.startsWith("skills/") -> "skills"
             screen.startsWith("letter/") -> letterFrom.ifEmpty { "memories" }.also { letterFrom = "" }
             screen == "memories" -> "persona"
@@ -1217,7 +1217,7 @@ private fun ColumnScope.ProvidersScreen(store: AssistantStore, compact: Boolean,
         Field(q, { q = it }, "搜索供应商", modifier = Modifier.padding(bottom = 16.dp))
     }
     Column(Modifier.weight(1f, fill = false).verticalScroll(rememberScrollState()), verticalArrangement = Arrangement.spacedBy(12.dp)) {
-        store.ordered().filter { q.isBlank() || it.name.contains(q.trim(), ignoreCase = true) }.forEach { p ->
+        store.ordered().filter { it.id != Gpt.ID && (q.isBlank() || it.name.contains(q.trim(), ignoreCase = true)) }.forEach { p ->
             val c = store.config(p.id)
             // 第 381 版：色块卡片；首字放进小方块；状态、模型数变小色块标签；正在用的那家整块透一层点缀色
             val live = store.activeProvider == p.id

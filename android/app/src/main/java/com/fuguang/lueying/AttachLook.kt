@@ -62,6 +62,7 @@ object AttachLook {
         val img = if (anthropic) JSONObject().put("type", "image").put("source", JSONObject().put("type", "base64").put("media_type", mime).put("data", b64))
         else JSONObject().put("type", "image_url").put("image_url", JSONObject().put("url", "data:$mime;base64,$b64"))
         val content = JSONArray().put(img).put(JSONObject().put("type", "text").put("text", prompt))
+        if (p.id == Gpt.ID) return@withContext Gpt.ask(model, "", content).ifBlank { throw IllegalStateException("$model 没写出来") }
         val body = JSONObject().put("model", model).put("stream", false)
             .put("messages", JSONArray().put(JSONObject().put("role", "user").put("content", content)))
         // DeepSeek 现在默认先想再答：字多的图（食谱、表格）光想就把 1500 用完，正文是空的 → 「照片没看清」。帮手看图不用想，额度也放宽

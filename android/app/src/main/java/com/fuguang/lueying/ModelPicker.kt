@@ -111,6 +111,7 @@ private fun logoRes(id: String): Int = when (id) {
     "claude" -> R.drawable.logo_claude
     "gemini" -> R.drawable.logo_gemini
     "openai" -> if (Skin.light) R.drawable.logo_openai_light else R.drawable.logo_openai
+    Gpt.ID -> if (Skin.light) R.drawable.logo_openai_light else R.drawable.logo_openai
     "grok" -> if (Skin.light) R.drawable.logo_grok_light else R.drawable.logo_grok
     "kimi" -> R.drawable.logo_kimi
     "siliconflow" -> R.drawable.logo_siliconflow
@@ -247,7 +248,7 @@ private fun ProviderList(store: AssistantStore, sel: String?, onGo: (String) -> 
     val selPid = sel?.substringBefore('|')
     val selModel = sel?.substringAfter('|')
     val ready = store.ready()
-    val todo = store.ordered().filter { !store.config(it.id).configured }
+    val todo = store.ordered().filter { !store.config(it.id).configured && it.id != Gpt.ID }
     Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
         ready.forEach { p ->
             val c = store.config(p.id)

@@ -93,7 +93,7 @@ fun FuguangApp(prefs: Prefs, fullscreen: Boolean, setFullscreen: (Boolean) -> Un
     val blur = ScreenLook.blur
 
     val mineNav = remember { MineNav() }
-    val assistant = remember { AssistantStore(prefs) }
+    val assistant = remember { AssistantStore(prefs).also { Gpt.main = it } }
     remember { Chats.init(ConvStore(prefs)) }
     // 手上这段对话；她在回答时切走，那段留在后台写完（Chats.kt）
     val chatState = Chats.current!!

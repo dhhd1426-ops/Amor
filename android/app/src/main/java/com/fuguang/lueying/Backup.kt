@@ -53,7 +53,9 @@ object Backup {
     private val SKIP = listOf("torrent", "downloads", "whale/tmp", "asr", "tdlib", "content", "we-official", "we-official.txt", "crash.txt", "reply-runtime.log", "adblock.txt")
     private fun skipped(rel: String) = SKIP.any { rel == it || rel.startsWith("$it/") }
     /** 设置文件里不带的：官方壁纸引擎自己的、WebView 自己的（跟着手机走）。 */
-    private fun prefSkipped(name: String) = name.startsWith("we-official-") || name.startsWith("WebView")
+    private fun prefSkipped(name: String) = name.startsWith("we-official-") || name.startsWith("WebView") ||
+        // ChatGPT 账号的令牌（Gpt.kt）：官方条款不让转给别的设备，刷新令牌又是用一次换一把，两台手机拿同一把会互相顶掉。换手机重新登录
+        name == Gpt.FILE + ".xml"
     /** 网页登录只带这两样（充值页、网盘、内置浏览器的登录）；别的都是缓存。 */
     private val WEB = listOf("Default/Cookies", "Default/Cookies-journal", "Default/Local Storage")
     private const val STAGE = "restore-staged"

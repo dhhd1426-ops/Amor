@@ -8,6 +8,8 @@ class Prefs(context: Context) {
     private val sp: SharedPreferences =
         context.getSharedPreferences("fuguang", Context.MODE_PRIVATE)
     private val filesDir: java.io.File = context.applicationContext.filesDir
+    /** 别的存储要自己开文件时用（Gpt 的令牌单独一个文件，不进备份）。 */
+    val app: Context = context.applicationContext
 
     /** 放在 files/ 下的大块数据（对话记录）：不塞进设置文件，免得每改一个设置都把它重写一遍。 */
     fun file(name: String) = java.io.File(filesDir, name)
