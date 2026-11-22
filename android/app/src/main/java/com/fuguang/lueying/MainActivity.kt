@@ -76,7 +76,8 @@ class MainActivity : ComponentActivity() {
         VideoStore.init(this, prefs)
         ClipLink.init(prefs)
         PanStore.init(prefs)
-        Td.init(this, prefs)
+        // Telegram 模块已删：清掉它留在手机里的登录数据
+        Thread { runCatching { java.io.File(filesDir, "tdlib").deleteRecursively() } }.start()
         PanAli.init(this)
         Pan123.init(this)
         Whale.init(this)

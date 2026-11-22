@@ -137,7 +137,7 @@ object Downloads {
     }
 
     fun start(act: Activity?, title: String, m: Sniffer.Media, quality: String, variant: String?, audioOnly: Boolean, gallery: Boolean, wifiOnly: Boolean) {
-        // 一次下好几个（Telegram 多个视频、网盘一批）会落在同一毫秒：id 撞了下载页就闪退，撞了就往后挪
+        // 一次下好几个（网盘一批）会落在同一毫秒：id 撞了下载页就闪退，撞了就往后挪
         var t = System.currentTimeMillis()
         while (list.any { it.id == t.toString(36) }) t++
         val d = Dl(t.toString(36), title.ifBlank { "视频" }.take(60), m, quality, variant, audioOnly, gallery, wifiOnly)
@@ -232,16 +232,6 @@ object Downloads {
                     d.out = outs[files.indexOfFirst { Torrent.ext(it.second) in Torrent.VIDEO }.coerceAtLeast(0)]
                     d.total = files.sumOf { it.first.length().coerceAtLeast(0) }.takeIf { it > 0 } ?: d.total; d.done = d.total; d.frac = 1f; d.note = ""
                     runCatching { w.deleteRecursively() }; d.state = 3
-                    withContext(Dispatchers.Main) { save() }
-                    return@launch
-                }
-                // Telegram（登录后 TDLib 下）：下在 TDLib 自己的目录，好了搬进相册，再让 TDLib 删掉它那份
-                if (d.media.kind == "tg") {
-                    val name = d.media.name.ifBlank { d.title }
-                    val (f, fid) = TgTd.fetch(d, d.media.url, d.variant?.toIntOrNull() ?: 0)
-                    d.state = 2; d.speed = 0; d.total = f.length(); d.done = d.total; d.frac = 1f
-                    d.out = if (d.gallery && Torrent.isMedia(name)) place(d, f, name) else placeFile(d, f, name)
-                    TgTd.drop(fid); runCatching { w.deleteRecursively() }; d.state = 3
                     withContext(Dispatchers.Main) { save() }
                     return@launch
                 }

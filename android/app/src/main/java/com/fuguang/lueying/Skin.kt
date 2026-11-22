@@ -109,7 +109,7 @@ object Skin {
     val danger: Color get() = if (light) Color(0xFFC0504A) else Color(0xFFD79A94)
     /** 点缀色实底按钮上的字：杏色上是深棕；渐变上是那套的深字色。 */
     val onAccent: Color get() = if (grad) g.ink else Color(0xFF2A211B)
-    /** 聊天里卡片（抖音、网盘、Telegram 长条）的底：深色主题深色玻璃，浅色主题白色玻璃。 */
+    /** 聊天里卡片（抖音、网盘长条）的底：深色主题深色玻璃，浅色主题白色玻璃。 */
     fun cardFill(a: Float): Color = if (light) Color.White.copy(alpha = (a * .7f).coerceAtMost(.9f)) else rgba(30, 33, 42, a)
 
     /**

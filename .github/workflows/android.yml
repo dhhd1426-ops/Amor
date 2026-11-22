@@ -47,25 +47,6 @@ jobs:
           done
           ls -la android/app/src/main/res/font
 
-      - name: Fetch TDLib
-        # Telegram 官方 TDLib（tdlib.yml 单独编好放在 Releases 的 tdlib-<版本>）：Java 绑定放进源码，libtdjni.so 放进 jniLibs
-        env:
-          GH_TOKEN: ${{ github.token }}
-        run: |
-          set -e
-          # Amor 自己的 Releases 里还没有就从老仓库 fuguang-lueying 拿一次，顺手发到 Amor（以后都从 Amor 拿）
-          gh release download tdlib-1.8.69 -p tdlib.zip -D /tmp/td -R "${{ github.repository }}" || {
-            gh release download tdlib-1.8.69 -p tdlib.zip -D /tmp/td -R dhhd1426-ops/fuguang-lueying
-            gh release create tdlib-1.8.69 /tmp/td/tdlib.zip -R "${{ github.repository }}" --target "${{ github.sha }}" -t "TDLib 1.8.69" -n "Telegram TDLib：打包时下载（从 fuguang-lueying 复制）" || true
-          }
-          cd /tmp/td && unzip -q tdlib.zip
-          so=$(find /tmp/td -name libtdjni.so -path "*arm64-v8a*" | head -n 1)
-          java=$(dirname "$(find /tmp/td -name Client.java -path "*org/drinkless/tdlib*" | head -n 1)")
-          mkdir -p "$GITHUB_WORKSPACE/android/app/src/main/jniLibs/arm64-v8a" "$GITHUB_WORKSPACE/android/app/src/main/java/org/drinkless/tdlib"
-          cp "$so" "$GITHUB_WORKSPACE/android/app/src/main/jniLibs/arm64-v8a/"
-          cp "$java"/*.java "$GITHUB_WORKSPACE/android/app/src/main/java/org/drinkless/tdlib/"
-          ls -la "$GITHUB_WORKSPACE/android/app/src/main/jniLibs/arm64-v8a" "$GITHUB_WORKSPACE/android/app/src/main/java/org/drinkless/tdlib"
-
       - name: Build APK
         working-directory: android
         run: |

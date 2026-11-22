@@ -156,6 +156,8 @@ fun FuguangApp(prefs: Prefs, fullscreen: Boolean, setFullscreen: (Boolean) -> Un
                 awaitPointerEventScope {
                     while (true) {
                         val e = awaitPointerEvent(androidx.compose.ui.input.pointer.PointerEventPass.Initial); Zen.touch()
+                        // 点长条以外的空白：长条收走
+                        PillSpots.watch(e)
                         // 场景壁纸的触摸互动：和系统动态壁纸一样，碰哪儿它都知道，界面照常用
                         Walls.touch?.let { t -> e.changes.firstOrNull()?.let { c -> t(c.position.x, c.position.y, c.pressed) } }
                     }
@@ -232,7 +234,6 @@ fun FuguangApp(prefs: Prefs, fullscreen: Boolean, setFullscreen: (Boolean) -> Un
             // 剪贴板里的抖音：顶上滑下的长条
             if (!zen) ClipPillLayer()
             if (!zen) PanPillLayer()
-            if (!zen) TgPillLayer()
         }
 
         // 悬浮卡片：在页面之上、圆钮卡片之下
@@ -240,7 +241,6 @@ fun FuguangApp(prefs: Prefs, fullscreen: Boolean, setFullscreen: (Boolean) -> Un
         CompositionLocalProvider(LocalHaze provides haze) {
             if (!zen) MineCardLayer(assistant, mineNav)
             if (!zen) NoteCardLayer(store, prefs)
-            if (!zen) TgAuthLayer()
             if (!zen) LessonCardLayer()
             if (!zen) FoldCardLayer()
             if (!zen) OutlineCardLayer()

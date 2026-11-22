@@ -237,7 +237,7 @@ class ChatState(val history: ConvStore) {
         if (editing in messages.indices) { slips += Lessons.REDO; while (messages.size > editing) messages.removeAt(messages.lastIndex) }
         editing = -1
         // 文字里有抖音链接：卡片挂在这条消息下面（先是「正在认」，认出了就填满）
-        messages.add(ChatMsg("user", AssistantExt.applyRegex(AssistantExt.of(Memory.active), text, false, AssistantExt.Target.PERSIST), clips = listOfNotNull(VideoStore.offer(text)?.link, PanStore.offer(text)?.link, TgStore.offer(text)?.link), files = atts.toList()))
+        messages.add(ChatMsg("user", AssistantExt.applyRegex(AssistantExt.of(Memory.active), text, false, AssistantExt.Target.PERSIST), clips = listOfNotNull(VideoStore.offer(text)?.link, PanStore.offer(text)?.link), files = atts.toList()))
         atts.clear()
         Memory.touch(newChat = messages.size == 1)
         // 每天第一次来找她：后台把之前没理过的记忆理一遍、过完的周月年收拢（MemoryLearn.kt）
@@ -823,8 +823,7 @@ fun ChatPage(
         InBrowser.ask = { t -> if (chat.busy) chat.draft = t else { chat.draft = t }; chat.focusTick++ }
         // 长条上「让她看看」：直接发出去（她在忙就排队）
         ClipLink.ask = { t -> chat.draft = t; val n = chat.send(scope, store); if (n >= 0) scope.launch { flight.launch(n) } }
-        TgPill.ask = ClipLink.ask
-        onDispose { InBrowser.ask = null; ClipLink.ask = null; TgPill.ask = null }
+        onDispose { InBrowser.ask = null; ClipLink.ask = null }
     }
     // 以前在 SideEffect 里读 chat.draft：每打一个字整页重组。现在在后台跟着这些值，变了才写
     LaunchedEffect(chat) {

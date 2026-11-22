@@ -2,17 +2,12 @@ package com.fuguang.lueying
 
 import android.app.Activity
 import androidx.compose.animation.AnimatedContent
-import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.animation.core.Animatable
 import androidx.compose.animation.core.animateFloatAsState
 import androidx.compose.animation.core.keyframes
-import androidx.compose.animation.core.spring
 import androidx.compose.animation.core.tween
 import androidx.compose.animation.fadeIn
 import androidx.compose.animation.fadeOut
-import androidx.compose.animation.slideInVertically
-import androidx.compose.animation.slideOutVertically
-import androidx.compose.animation.scaleOut
 import androidx.compose.animation.togetherWith
 import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
@@ -26,7 +21,6 @@ import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
-import androidx.compose.foundation.layout.statusBarsPadding
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.layout.widthIn
 import androidx.compose.runtime.Composable
@@ -53,7 +47,7 @@ private val Warm: Color get() = ClipWarm
 private val Bad: Color get() = ClipBad
 
 /**
- * 剪贴板里的抖音：顶上滑下的长条。只管「复制了就提醒」：封面 + 标题 +「存下来 / 让她看看 / ×」。
+ * 剪贴板里的抖音：顶上滑下的长条（进出场、拖动、自己收、点空白收都在 [PillDrop]）。只管「复制了就提醒」：封面 + 标题 +「存下来 / 让她看看 / ×」。
  * 存下来：长条里走进度，好了画 ✓、停一拍迸光点 + 轻震，2.6 秒后自己收；没成写原因、抖一下。
  * 让她看看：长条向下收进聊天，直接发出一条消息，卡片落在那条消息下面（同一条 Clip）。
  */
@@ -63,14 +57,15 @@ fun ClipPillLayer() {
     val haptic = LocalHapticFeedback.current
     val c = VideoStore.clip(ClipLink.pill)
     var into by remember { mutableStateOf(false) }
-    Box(Modifier.fillMaxWidth().statusBarsPadding().padding(top = 56.dp, start = 12.dp, end = 12.dp), contentAlignment = Alignment.TopCenter) {
-        AnimatedVisibility(
-            ClipLink.showing && c != null,
-            enter = slideInVertically(spring(.78f, 420f)) { -it - 80 } + fadeIn(tween(220)),
-            exit = if (into) scaleOut(tween(200, easing = Curves.accel), .9f) + slideOutVertically(tween(220, easing = Curves.accel)) { it / 2 } + fadeOut(tween(200))
-                else slideOutVertically(tween(220, easing = Curves.accel)) { -it - 80 } + fadeOut(tween(200)),
-        ) {
-            val clip = c ?: return@AnimatedVisibility
+    // 新来一条：上一条「让她看看」留下的方向清掉
+    LaunchedEffect(ClipLink.pill, ClipLink.showing) { if (ClipLink.showing) into = false }
+    run {
+        PillDrop(
+            target = ClipLink.pill.takeIf { ClipLink.showing && c != null },
+            into = into, busy = c?.save == 1, stay = (c?.save ?: 0) >= 2,
+            onDismiss = { into = false; ClipLink.dismiss() },
+        ) { link ->
+            val clip = VideoStore.clip(link) ?: return@PillDrop
             var size by remember { mutableStateOf(androidx.compose.ui.unit.IntSize.Zero) }
             var burst by remember { mutableStateOf<Offset?>(null) }
             val dx = remember { Animatable(0f) }

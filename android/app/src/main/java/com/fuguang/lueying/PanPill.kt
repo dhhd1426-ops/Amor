@@ -2,7 +2,6 @@ package com.fuguang.lueying
 
 import androidx.activity.compose.BackHandler
 import androidx.compose.animation.AnimatedVisibility
-import androidx.compose.animation.core.spring
 import androidx.compose.animation.core.tween
 import androidx.compose.animation.expandVertically
 import androidx.compose.animation.fadeIn
@@ -10,8 +9,6 @@ import androidx.compose.animation.fadeOut
 import androidx.compose.animation.scaleIn
 import androidx.compose.animation.scaleOut
 import androidx.compose.animation.shrinkVertically
-import androidx.compose.animation.slideInVertically
-import androidx.compose.animation.slideOutVertically
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
@@ -19,7 +16,6 @@ import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
-import androidx.compose.foundation.layout.statusBarsPadding
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.layout.widthIn
 import androidx.compose.runtime.Composable
@@ -51,13 +47,16 @@ object PanLink {
 fun PanPillLayer() {
     val it = PanStore.item(PanLink.pill)
     if (PanLink.showing && PanLink.open) BackHandler { PanLink.dismiss() }
-    Box(Modifier.fillMaxWidth().statusBarsPadding().padding(top = 56.dp, start = 12.dp, end = 12.dp), contentAlignment = Alignment.TopCenter) {
-        AnimatedVisibility(
-            PanLink.showing && it != null,
-            enter = slideInVertically(spring(.78f, 420f)) { h -> -h / 3 - 80 } + fadeIn(tween(220)),
-            exit = slideOutVertically(tween(220, easing = Curves.accel)) { h -> -h / 4 - 40 } + scaleOut(tween(220, easing = Curves.accel), .97f) + fadeOut(tween(180)),
-        ) {
-            val item = it ?: return@AnimatedVisibility
+    // 展开着（在选文件、填提取码、去登录）：不自己收、不跟手拖、点空白不收，只有 × 和返回能收
+    val pinned = PanLink.open || it?.waitingLogin == true
+    run {
+        PillDrop(
+            target = PanLink.pill.takeIf { PanLink.showing && it != null },
+            busy = it?.save == 1, stay = pinned || (it?.save ?: 0) >= 2 || it?.stage == 2,
+            drag = !pinned, outside = !pinned,
+            onDismiss = { PanLink.dismiss() },
+        ) { link ->
+            val item = PanStore.item(link) ?: return@PillDrop
             val seen = remember(item) { item.doneTick }
             LaunchedEffect(item.doneTick) { if (item.doneTick > seen) { kotlinx.coroutines.delay(2800); if (item.save == 2) PanLink.dismiss() } }
             Column(Modifier.widthIn(max = 460.dp).fillMaxWidth().glass(RoundedCornerShape(18.dp), 22.dp, fill = Skin.cardFill(.86f), border = Color.Transparent)) {

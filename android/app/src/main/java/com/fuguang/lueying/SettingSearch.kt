@@ -74,7 +74,6 @@ internal object SettingIndex {
         SettingSpot("memprompt", "记忆系统提示词", "我的 › 助理 › 记忆 › ☰ › 记忆模型", "记忆系统提示词 记忆提示词 记下 整理 写法", "memmodel"),
         SettingSpot("web", "联网搜索", "我的 › 功能", "联网 搜索 网页 上网 exa", "features"),
         SettingSpot("skills", "技能", "我的 › 功能", "技能 skill 本事 工具", "features"),
-        SettingSpot("tg", "Telegram", "我的 › 连接器", "telegram 电报 频道 下载 登录", "mine"),
         SettingSpot("usage", "用量", "我的 › 用量", "用量 余额 限额 额度 token 费用 速率", "usage"),
         SettingSpot("mcp", "MCP 服务", "我的 › 连接器", "mcp 服务 高德 地图 车票 连接", "mcp"),
         SettingSpot("voice", "语音", "我的 › 连接器", "语音 朗读 读出来 声音 音色 tts 配音 volink minimax 语速", "voice"),
