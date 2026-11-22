@@ -46,8 +46,11 @@ object Backup {
     class Result(val uri: Uri, val name: String, val bytes: Long)
     class NoRoom(val short: Long) : Exception()
 
-    /** files/ 下不进备份的：下载和种子的临时文件、解压临时目录、语音缓存、可以重新拉的内容、日志和运行记号。恢复时这些也不动。 */
-    private val SKIP = listOf("torrent", "downloads", "whale/tmp", "whale_voice", "asr", "tdlib", "content", "we-official", "we-official.txt", "crash.txt", "reply-runtime.log", "adblock.txt")
+    /**
+     * files/ 下不进备份的：下载和种子的临时文件、解压临时目录、可以重新拉的内容、日志和运行记号。恢复时这些也不动。
+     * 鲸鱼娘的东西全带（用户点名要的）：模型 whale/model、设置、配好音的台词 whale_voice（重配要花钱）；只有导入时的临时目录 whale/tmp 不带。
+     */
+    private val SKIP = listOf("torrent", "downloads", "whale/tmp", "asr", "tdlib", "content", "we-official", "we-official.txt", "crash.txt", "reply-runtime.log", "adblock.txt")
     private fun skipped(rel: String) = SKIP.any { rel == it || rel.startsWith("$it/") }
     /** 设置文件里不带的：官方壁纸引擎自己的、WebView 自己的（跟着手机走）。 */
     private fun prefSkipped(name: String) = name.startsWith("we-official-") || name.startsWith("WebView")
