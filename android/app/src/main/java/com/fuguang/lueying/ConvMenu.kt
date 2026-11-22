@@ -282,9 +282,11 @@ internal fun ConvMenuLayer(history: ConvStore) {
         val tt by animateFloatAsState(if (tip != null) 1f else 0f, tween(if (tip != null) 240 else 180, easing = if (tip != null) Curves.decel else Curves.accel), label = "tip")
         var lastTip by remember { mutableStateOf("") }
         if (tip != null) lastTip = tip
+        // 点空白：提示、撤销条马上收（对话已经删了，只是不再留着撤销）
+        val tipOut = outsideTap(tip != null) { undo = null; note = null }
         if (tt > 0f) {
             Row(
-                Modifier.align(Alignment.BottomCenter).navigationBarsPadding().padding(bottom = 120.dp, start = 16.dp, end = 16.dp)
+                Modifier.align(Alignment.BottomCenter).then(tipOut).navigationBarsPadding().padding(bottom = 120.dp, start = 16.dp, end = 16.dp)
                     .graphicsLayer { alpha = tt; translationY = (1f - tt) * 10.dp.toPx() }
                     .widthIn(max = 520.dp).fillMaxWidth()
                     .background(Skin.toast, RoundedCornerShape(16.dp))

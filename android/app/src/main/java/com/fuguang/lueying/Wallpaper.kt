@@ -847,13 +847,16 @@ private fun BusyTile() {
 private fun WallUndoBar(modifier: Modifier) {
     val u = Walls.undo
     LaunchedEffect(u) { if (u != null) { delay(4000); if (Walls.undo === u) { Walls.undo = null; withContext(Dispatchers.IO) { Walls.purge(u.first) } } } }
+    // 点空白：马上收，文件也当场真删（不然 4 秒的计时被取消，文件就留下了）
+    val scope = rememberCoroutineScope()
+    val out = outsideTap(u != null) { Walls.undo?.let { x -> Walls.undo = null; scope.launch(Dispatchers.IO) { Walls.purge(x.first) } } }
     AnimatedVisibility(
         u != null, modifier,
         enter = fadeIn(tween(200)) + slideInVertically(tween(420, easing = K.decel)) { it },
         exit = fadeOut(tween(200)) + slideOutVertically(tween(280, easing = K.accel)) { it },
     ) {
         Row(
-            Modifier.clip(RoundedCornerShape(50)).background(K.pill).padding(start = 18.dp, end = 6.dp, top = 6.dp, bottom = 6.dp),
+            out.clip(RoundedCornerShape(50)).background(K.pill).padding(start = 18.dp, end = 6.dp, top = 6.dp, bottom = 6.dp),
             verticalAlignment = Alignment.CenterVertically,
         ) {
             Txt("已删除", K.ink, 14.sp, maxLines = 1)

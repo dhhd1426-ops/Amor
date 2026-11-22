@@ -68,6 +68,19 @@ internal object PillSpots {
 }
 
 /**
+ * 底部的撤销条、提示条：把返回的 Modifier 挂在条自己身上，[on] 时点它以外的空白就调 [onOutside]。
+ * 只负责「知道点了外面」，收的动画还是条自己的。
+ */
+@Composable
+internal fun outsideTap(on: Boolean, onOutside: () -> Unit): Modifier {
+    val f by rememberUpdatedState(onOutside)
+    val spot = remember { PillSpots.Spot { f() } }
+    DisposableEffect(Unit) { PillSpots.spots.add(spot); onDispose { PillSpots.spots.remove(spot) } }
+    SideEffect { spot.on = on }
+    return Modifier.onGloballyPositioned { spot.bounds = it.boundsInRoot() }
+}
+
+/**
  * 顶上长条从出现到消失的一整套（照苹果的通知横幅，原型 BGyA7XCFTWV9WPrd4FZk1Q）：
  *  - 出现：从屏幕上沿外掉下来，弹簧就位；位置这一个值同时带着透明度和大小。落稳时轻震。
  *  - 停留：6 秒没碰自己收；手指按着、[busy]、[stay] 时不计。

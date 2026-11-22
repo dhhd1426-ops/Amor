@@ -191,13 +191,14 @@ internal fun MemUndoBar(modifier: Modifier) {
     var last by remember { mutableStateOf(u) }
     if (u != null) last = u
     LaunchedEffect(u) { if (u != null) { delay(4000); if (MemEdit.undo === u) MemEdit.undo = null } }
+    val out = outsideTap(u != null) { MemEdit.undo = null }
     AnimatedVisibility(
         u != null, modifier,
         enter = fadeIn(tween(200)) + slideInVertically(tween(420, easing = K.decel)) { it },
         exit = fadeOut(tween(200)) + slideOutVertically(tween(280, easing = K.accel)) { it },
     ) {
         Row(
-            Modifier.clip(RoundedCornerShape(50)).background(K.pill).padding(start = 18.dp, end = 6.dp, top = 6.dp, bottom = 6.dp),
+            out.clip(RoundedCornerShape(50)).background(K.pill).padding(start = 18.dp, end = 6.dp, top = 6.dp, bottom = 6.dp),
             verticalAlignment = Alignment.CenterVertically,
         ) {
             Txt("已删除", K.ink, 14.sp, maxLines = 1)
