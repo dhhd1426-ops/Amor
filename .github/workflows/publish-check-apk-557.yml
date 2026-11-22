@@ -1,0 +1,30 @@
+name: Publish check APK 557
+
+on:
+  push:
+    branches: [release/check-apk-557]
+
+permissions:
+  actions: read
+  contents: write
+
+jobs:
+  publish:
+    runs-on: ubuntu-latest
+    env:
+      GH_TOKEN: ${{ github.token }}
+      GH_REPO: ${{ github.repository }}
+    steps:
+      - name: Verify and publish the existing APK
+        shell: bash
+        run: |
+          set -euo pipefail
+          gh api "repos/$GH_REPO/actions/artifacts/14735295171/zip" > artifact.zip
+          echo "7965fecdb87b3d3ff4b99d345a4257d9ecb21c0e9b993b377fa9eb5aa5996056  artifact.zip" | sha256sum -c
+          unzip -p artifact.zip fuguang-lueying-557.apk > fuguang-lueying-557.apk
+          test -s fuguang-lueying-557.apk
+          unzip -tq fuguang-lueying-557.apk
+          gh release create app-build-557 fuguang-lueying-557.apk \
+            --target bc32883d715e9d4f24f5f395997119e95bd0e4b2 --prerelease \
+            --title "浮光掠影 App 第 557 版" \
+            --notes "官方引擎：速度、频谱、触摸；超宽壁纸清晰度。构建记录：https://github.com/dhhd1426-ops/Amor/actions/runs/44973766776"
