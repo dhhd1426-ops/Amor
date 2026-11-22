@@ -87,6 +87,9 @@ object ConvMenu {
     var deleting by mutableStateOf<Conv?>(null)
     /** ⋮ 的位置。 */
     var moreAt = Rect.Zero
+    /** 「全部对话」里多选删掉的那几段（MenuAll.kt）：留 4 秒给撤销；里面有没有当时正开着的那段。 */
+    var gone by mutableStateOf<List<Conv>?>(null)
+    var goneCurrent: String? = null
 
     fun openTop(c: Conv) { side = false; anchor = moreAt; conv = c }
     fun openSide(c: Conv, at: Rect) { side = true; anchor = at; held = c.id; conv = c }
@@ -278,12 +281,14 @@ internal fun ConvMenuLayer(history: ConvStore) {
         // ---------- 提示 / 撤销 ----------
         LaunchedEffect(undo) { if (undo != null) { delay(4000); undo = null } }
         LaunchedEffect(note) { if (note != null) { delay(1800); note = null } }
-        val tip = if (undo != null) "删掉了这段对话" else note
+        val many = ConvMenu.gone
+        LaunchedEffect(many) { if (many != null) { delay(4000); if (ConvMenu.gone === many) ConvMenu.gone = null } }
+        val tip = if (undo != null) "删掉了这段对话" else if (many != null) "删掉了 ${many.size} 段对话" else note
         val tt by animateFloatAsState(if (tip != null) 1f else 0f, tween(if (tip != null) 240 else 180, easing = if (tip != null) Curves.decel else Curves.accel), label = "tip")
         var lastTip by remember { mutableStateOf("") }
         if (tip != null) lastTip = tip
         // 点空白：提示、撤销条马上收（对话已经删了，只是不再留着撤销）
-        val tipOut = outsideTap(tip != null) { undo = null; note = null }
+        val tipOut = outsideTap(tip != null) { undo = null; note = null; ConvMenu.gone = null }
         if (tt > 0f) {
             Row(
                 Modifier.align(Alignment.BottomCenter).then(tipOut).navigationBarsPadding().padding(bottom = 120.dp, start = 16.dp, end = 16.dp)
@@ -294,9 +299,14 @@ internal fun ConvMenuLayer(history: ConvStore) {
                 verticalAlignment = Alignment.CenterVertically,
             ) {
                 Txt(lastTip, Skin.toastInk, 13.5.sp, Modifier.weight(1f), maxLines = 1)
-                if (undo != null) Pressable({
+                if (undo != null || many != null) Pressable({
                     undo?.let { u -> history.restore(u); if (wasCurrent) history.get(u.id)?.let { Chats.open(it) } }
                     undo = null
+                    ConvMenu.gone?.let { list ->
+                        list.forEach { history.restore(it) }
+                        ConvMenu.goneCurrent?.let { id -> history.get(id)?.let { Chats.open(it) } }
+                    }
+                    ConvMenu.gone = null
                 }, label = "撤销") { pr ->
                     Txt("撤销", Skin.accent, 13.5.sp, Modifier.background(if (pr) Skin.toastInk.copy(alpha = .1f) else Color.Transparent, RoundedCornerShape(12.dp)).padding(horizontal = 12.dp, vertical = 9.dp))
                 }
