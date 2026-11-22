@@ -1,0 +1,31 @@
+name: Publish check APK 558
+
+on:
+  push:
+    branches: [release/check-apk-558]
+
+permissions:
+  actions: read
+  contents: write
+
+jobs:
+  publish:
+    runs-on: ubuntu-latest
+    env:
+      GH_TOKEN: ${{ github.token }}
+      GH_REPO: ${{ github.repository }}
+    steps:
+      - name: Verify and publish the existing APK
+        shell: bash
+        run: |
+          set -euo pipefail
+          gh api "repos/$GH_REPO/actions/artifacts/14738165459/zip" > artifact.zip
+          echo "118e782187be2d512da38638076dee6157c27b067f9469765fdb9cd732906d89  artifact.zip" | sha256sum -c
+          unzip -l artifact.zip
+          unzip -p artifact.zip fuguang-lueying-558.apk > fuguang-lueying-558.apk
+          test -s fuguang-lueying-558.apk
+          unzip -tq fuguang-lueying-558.apk
+          gh release create app-build-558 fuguang-lueying-558.apk \
+            --target 9e8a02b171c6409f0a7c91ac085e56d1ab73e230 --prerelease \
+            --title "浮光掠影 App 第 558 版" \
+            --notes "侧栏新对话换成液态玻璃胶囊（按下弹性放大、手指下亮光）；全局照 FlClash 分层：圆角换连续曲率、不再描边、暗黑主题拉开层级、选中只打勾、分段选中用实心点缀色。构建记录：https://github.com/dhhd1426-ops/Amor/actions/runs/44980321153"
