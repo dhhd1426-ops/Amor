@@ -35,6 +35,7 @@ internal object WeOfficial {
         "io.wallpaperengine.weutil.WallpaperInfoSparse",
     )
 
+    /** 目录：每张正在官方引擎里画的壁纸一个文件，名字是壁纸 id，内容是走到哪一步 */
     private const val RUN = "we-official-run"
     private const val OFF = "we-official-off-554" // 换版本换文件名：旧版崩过的记录不算数
     private const val SCENELIB = "io.wallpaperengine.wrapper.SceneLib"
@@ -42,31 +43,39 @@ internal object WeOfficial {
     /** 进程里只加载一次官方引擎；拿到的是官方 App 自己的 SceneLib 实例和它的方法 */
     private var lib: Any? = null
     private val methods = HashMap<String, Method>()
-    /** 上次 App 在官方引擎里退出时停在哪一步（给诊断框） */
-    @Volatile var lastCrash: String = ""
+    /** 在官方引擎里崩过的壁纸：id → 停在哪一步 */
+    private val crashed = HashMap<String, String>()
+    private var checked = false
 
     /**
-     * 这张壁纸能不能走官方引擎：装了官方 App，而且这张没在官方引擎里崩过。
-     * 上次跑到一半 App 没了（原生代码崩溃抓不住），标记文件还在：记下停在哪一步，这张以后改用自带渲染器。
+     * 原生代码崩溃抓不住，靠记号：官方引擎在画的时候记号一直留着（[mark]），切后台、换壁纸、收尾才擦（[unmark]）。
+     * App 启动后第一次问的时候查一遍：还留着记号的，就是上次画着画着 App 没了，这张以后改用自带渲染器。
+     * 只查这一次——之后再看到的记号都是本次正在画的，不是崩溃（第 554 版每次都查，换壁纸时会冤枉正在载入的那张）。
      */
-    fun usable(ctx: Context, wallId: String): Boolean {
-        val run = File(ctx.filesDir, RUN); val off = File(ctx.filesDir, OFF)
-        if (run.exists()) {
+    @Synchronized private fun check(ctx: Context) {
+        if (checked) return
+        checked = true
+        val off = File(ctx.filesDir, OFF); val run = File(ctx.filesDir, RUN)
+        runCatching { off.readLines() }.getOrDefault(emptyList()).forEach { l -> if (l.isNotBlank()) crashed[l.substringBefore('|')] = l.substringAfter('|', "") }
+        var found = false
+        if (run.isFile) { // 第 553、554 版的记号是单个文件「id|步骤」
             val t = runCatching { run.readText() }.getOrDefault("")
+            if (t.substringBefore('|').isNotEmpty()) { crashed[t.substringBefore('|')] = t.substringAfter('|', ""); found = true }
             run.delete()
-            val id = t.substringBefore('|')
-            if (id.isNotEmpty()) { runCatching { off.appendText(id + "\n") }; lastCrash = t.substringAfter('|') }
         }
-        if (WeEngine.apk(ctx) == null) return false
-        return runCatching { off.readLines() }.getOrDefault(emptyList()).none { it == wallId }
+        run.listFiles()?.forEach { f -> crashed[f.name] = runCatching { f.readText() }.getOrDefault(""); f.delete(); found = true }
+        if (found) saveOff(ctx)
     }
+    private fun saveOff(ctx: Context) { runCatching { File(ctx.filesDir, OFF).writeText(crashed.entries.joinToString("") { it.key + "|" + it.value.replace('\n', ' ') + "\n" }) } }
+
+    /** 这张壁纸能不能走官方引擎：装了官方 App，而且这张没在官方引擎里崩过 */
+    @Synchronized fun usable(ctx: Context, wallId: String): Boolean { check(ctx); return WeEngine.apk(ctx) != null && wallId !in crashed }
+    /** 这张上次在官方引擎里停在哪一步；没崩过是 null */
+    @Synchronized fun crashStep(ctx: Context, wallId: String): String? { check(ctx); return crashed[wallId] }
     /** 长按「官方引擎」后：这张重新试官方引擎 */
-    fun retry(ctx: Context, wallId: String) {
-        val off = File(ctx.filesDir, OFF)
-        runCatching { off.writeText(off.readLines().filter { it.isNotBlank() && it != wallId }.joinToString("\n") { it } + "\n") }
-    }
-    fun mark(ctx: Context, wallId: String, step: String) { runCatching { File(ctx.filesDir, RUN).writeText("$wallId|$step") } }
-    fun unmark(ctx: Context) { File(ctx.filesDir, RUN).delete() }
+    @Synchronized fun retry(ctx: Context, wallId: String) { check(ctx); if (crashed.remove(wallId) != null) saveOff(ctx) }
+    fun mark(ctx: Context, wallId: String, step: String) { runCatching { val d = File(ctx.filesDir, RUN); if (d.isFile) d.delete(); d.mkdirs(); File(d, wallId).writeText(step) } }
+    fun unmark(ctx: Context, wallId: String) { runCatching { File(File(ctx.filesDir, RUN), wallId).delete() } }
 
     /** 在 GL 线程上调：借官方 App 的类加载器装 SceneLib，用它自己的 initLibrary 加载 libscenejni.so */
     @Synchronized fun load(app: Context): Any {
@@ -197,7 +206,7 @@ private class OfficialCtx(private val app: Context, official: Context) : Context
  * 官方引擎的渲染线程（第 553 版）：照官方 SceneWallpaperView 的顺序——
  * initLibrary → initContext → initScene(文件) → resizeScene → 每帧 updateScene，画在我们自己建的 EGL（ES 3）表面上，
  * 所以还是 TextureView，聊天时的虚化、磨砂照旧。
- * 每一步先写标记文件；原生代码崩了，下次打开这张改用自带渲染器（[WeOfficial.usable]）。
+ * 画的时候一直留着记号；原生代码崩了，下次打开这张改用自带渲染器（[WeOfficial.usable]）。
  * Java 这边抛错（反射找不到、引擎报错）就收尾后回调 [onFail]，由外面换自带渲染器。
  */
 internal class WeOfficialThread(
@@ -217,7 +226,9 @@ internal class WeOfficialThread(
 
     override fun finish() { quit = true; interrupt() }
 
-    private fun at(s: String) { step = s; WeOfficial.mark(app, wallId, s) }
+    /** 记号在不在（只在渲染线程上动） */
+    private var marked = false
+    private fun at(s: String) { step = s; marked = true; WeOfficial.mark(app, wallId, s) }
 
     override fun run() {
         var dpy: EGLDisplay = EGL14.EGL_NO_DISPLAY; var ctx: EGLContext = EGL14.EGL_NO_CONTEXT; var surf: EGLSurface = EGL14.EGL_NO_SURFACE
@@ -253,17 +264,19 @@ internal class WeOfficialThread(
             var frames = 0; var ready = false
             val canvas = PointF()
             while (!quit) {
-                if (!playing) { try { sleep(80) } catch (_: InterruptedException) {}; continue }
+                // 暂停（切后台）时不碰引擎：擦掉记号，这时候 App 被系统收走不算崩
+                if (!playing) { if (marked) { marked = false; WeOfficial.unmark(app, wallId) }; try { sleep(80) } catch (_: InterruptedException) {}; continue }
                 val now = System.nanoTime()
+                if (frames == 0) at("画第一帧（updateScene）") else if (!marked) at(step)
                 if (w != sw || h != sh) { sw = w; sh = h; WeOfficial.call(l, "resizeScene", id, sw, sh) }
-                if (frames == 0) at("画第一帧（updateScene）")
                 WeOfficial.call(l, "updateScene", id)
                 if (!EGL14.eglSwapBuffers(dpy, surf)) break // 表面没了
                 frames++
                 // 场景是另起线程载入的：拿得到画布大小才算载完
                 if (!ready && (WeOfficial.call(l, "getSceneCanvasSize", id, canvas) as? Boolean == true) && canvas.x > 0 && canvas.y > 0) {
                     ready = true
-                    WeOfficial.unmark(app)
+                    // 记号不擦：画到一半才崩也要记得住，不然每次打开都崩（第 554 版画出第一帧就擦了）
+                    at("已经画出来，画着画着退出的")
                     onReady(canvas.x / canvas.y, "渲染：官方引擎（Wallpaper Engine ${WeEngine.version(app) ?: ""}）\n显卡：$gpu\n画布 ${canvas.x.toInt()}×${canvas.y.toInt()} · 画面 ${sw}×${sh}")
                 }
                 // 30 秒还没载完：当它没起来
@@ -286,8 +299,8 @@ internal class WeOfficialThread(
                     EGL14.eglReleaseThread()
                 }
             }
-            // 正常收尾（换壁纸、离开页面）不算崩
-            if (quit || fail.isNotEmpty()) WeOfficial.unmark(app)
+            // 能走到这里就没崩：换壁纸、离开页面、表面没了（折叠屏开合）、引擎报错，都擦掉记号
+            WeOfficial.unmark(app, wallId)
             if (fail.isNotEmpty()) onFail(fail)
         }
     }

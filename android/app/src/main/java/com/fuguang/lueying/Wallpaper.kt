@@ -59,6 +59,7 @@ import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.SideEffect
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.key
 import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableStateListOf
 import androidx.compose.runtime.mutableStateOf
@@ -144,6 +145,8 @@ internal object Walls {
     /** 场景要听声音但还没给权限：进壁纸页时问一次 */
     var needMic by mutableStateOf(false)
     var micOk: (() -> Unit)? = null
+    /** 加一：正在放的场景壁纸整个重新载入 */
+    var epoch by mutableIntStateOf(0)
     /** 屏幕宽高比 */
     @Volatile var ca = .5f
 
@@ -323,7 +326,7 @@ fun WallBackdrop(playing: Boolean, positionX: Float, onFailed: () -> Unit) {
             val w = Walls.list.firstOrNull { it.id == id }
             if (w == null) SceneBackground(playing = playing, positionX = positionX, onFailed = onFailed)
             else when (w.kind) {
-                "scene" -> SceneWall(w, playing)
+                "scene" -> key(Walls.epoch) { SceneWall(w, playing) } // 长按「官方引擎」重试：整个重来
                 "image" -> ImageWall(w)
                 "video" -> VideoWall(w, playing)
                 else -> SceneBackground(playing = playing, positionX = positionX, onFailed = onFailed)
@@ -346,7 +349,8 @@ private fun rememberWallImage(file: File, max: Int): ImageBitmap? {
 }
 
 /** 接住 TextureView 的表面，管渲染线程、脚本和频谱的生死。 */
-private class WeHost(ctx: Context, private val wall: Wall, private val onReady: (Boolean) -> Unit) : TextureView.SurfaceTextureListener {
+/** [onReady]：画出来没有、是不是官方引擎在画（官方引擎画整张，取景由外面的 [SceneFrame] 做） */
+private class WeHost(ctx: Context, private val wall: Wall, private val onReady: (ok: Boolean, official: Boolean) -> Unit) : TextureView.SurfaceTextureListener {
     private val app = ctx.applicationContext
     private val main = Handler(Looper.getMainLooper())
     private val scripts = WeScripts(app)
@@ -369,24 +373,30 @@ private class WeHost(ctx: Context, private val wall: Wall, private val onReady: 
     override fun onSurfaceTextureAvailable(st: SurfaceTexture, w: Int, h: Int) {
         stop()
         // 第 553 版起先走官方引擎（借手机上官方 App 的 libscenejni.so），画面和官方一模一样；没装、起不来或崩过才用自带渲染器
-        if (WeOfficial.usable(app, wall.id)) startOfficial(st, w, h) else startOwn(st, w, h, WeOfficial.lastCrash.takeIf { it.isNotEmpty() }?.let { "官方引擎上次让 App 退出了，停在：$it\n长按这张 →「官方引擎」可以再试\n" } ?: "")
+        if (WeOfficial.usable(app, wall.id)) startOfficial(st, w, h)
+        else startOwn(st, w, h, WeOfficial.crashStep(app, wall.id)?.let { "官方引擎上次让 App 退出了，停在：$it\n长按这张 →「官方引擎」可以再试\n" } ?: "")
     }
 
     private fun startOfficial(st: SurfaceTexture, w: Int, h: Int) {
+        var me: WeRunner? = null
         val t = WeOfficialThread(app, st, w, h, wall.id, wall.path, onReady = { aspect, info ->
             main.post {
-                if (closed) return@post
+                if (closed || thread !== me) return@post
                 wall.aspect = aspect
                 wall.diag = Walls.diagHead(wall) + info + "\n\n全部交给官方引擎画"
-                onReady(true)
+                onReady(true, true)
             }
         }, onFail = { err ->
             main.post {
-                if (closed || thread == null) return@post
+                // 这期间表面可能已经换过一轮（折叠屏开合）：只有还是这条线程才接手
+                if (closed || thread !== me) return@post
+                val cw = me?.w ?: w; val ch = me?.h ?: h
                 thread = null
-                startOwn(st, w, h, "官方引擎没起来，改用自带渲染器：\n$err\n\n")
+                onReady(false, false)
+                startOwn(st, cw, ch, "官方引擎没起来，改用自带渲染器：\n$err\n\n")
             }
         })
+        me = t
         t.playing = playing; thread = t; t.start()
     }
 
@@ -404,7 +414,7 @@ private class WeHost(ctx: Context, private val wall: Wall, private val onReady: 
                     else -> "有 ${skipped.size} 处没画出来：\n\n" + skipped.mapIndexed { i, s -> "${i + 1}. $s" }.joinToString("\n\n")
                 }
                 if (ok && au && !audio) { audio = true; if (playing) startViz() }
-                onReady(ok)
+                onReady(ok, false)
             }
         }
         t.playing = playing; thread = t; t.start()
@@ -423,14 +433,56 @@ private fun SceneWall(w: Wall, playing: Boolean) {
     val ctx = LocalContext.current
     val poster = rememberWallImage(w.thumb, 1200)
     var ready by remember { mutableStateOf(false) }
+    var official by remember { mutableStateOf(false) }
     val a by animateFloatAsState(if (ready) 1f else 0f, tween(460, easing = Curves.standard), label = "sceneIn")
-    val host = remember(w.id) { WeHost(ctx, w) { ok -> ready = ok } }
+    val host = remember(w.id) { WeHost(ctx, w) { ok, off -> ready = ok; official = off } }
     DisposableEffect(host) { onDispose { host.close() } }
     LaunchedEffect(host, playing) { host.playing = playing }
-    Box(Modifier.fillMaxSize().clipToBounds().background(Page.ground)) {
+    BoxWithConstraints(Modifier.fillMaxSize().clipToBounds().background(Page.ground)) {
         // 解包、解贴图要一两秒：先垫包里的预览图
         if (poster != null && a < 1f) Image(poster, null, Modifier.fillMaxSize(), contentScale = ContentScale.Crop)
-        AndroidView(factory = { c -> TextureView(c).also { it.surfaceTextureListener = host } }, modifier = Modifier.fillMaxSize().alpha(a))
+        SceneFrame(w, maxWidth, maxHeight, official) {
+            AndroidView(factory = { c -> TextureView(c).also { it.surfaceTextureListener = host } }, modifier = Modifier.fillMaxSize().alpha(a))
+        }
+    }
+}
+
+/**
+ * 场景壁纸的取景。自带渲染器自己按取景画（[on] 为假：这里什么都不做，画面就是整屏）。
+ * 官方引擎不认我们的取景（[on] 为真）：让它按壁纸原本的比例画整张，这里再放大、挪位、转、翻，规则和 [Framed] 一样。
+ * 用缩放不用改大小：表面大小不跟着放大倍数涨（放大 8 倍时表面还是一屏大小）。
+ * 两种情况是同一棵界面树，只是数不同——换了结构 TextureView 会重建，引擎要重新载入。
+ */
+@Composable
+private fun SceneFrame(w: Wall, bw: Dp, bh: Dp, on: Boolean, content: @Composable () -> Unit) {
+    @Suppress("UNUSED_EXPRESSION") Walls.tick // 取景变了就重排
+    val v = w.view; val sa = w.aspect.coerceIn(.2f, 5f)
+    val ca = bw.value / bh.value.coerceAtLeast(1f)
+    // 表面：整张壁纸的比例，刚好盖住屏幕那么大
+    val k = max(1f, ca / sa)
+    val baseW = if (on) bh * (k * sa) else bw; val baseH = if (on) bh * k else bh
+    // 整张壁纸在屏幕上的位置和大小
+    var x = 0.dp; var y = 0.dp; var cw = bw; var ch = bh; var rot = 0f; var bg = Color.Transparent
+    if (on) when (v[5].toInt()) {
+        1 -> Unit // 填充：拉满整屏
+        2 -> { ch = bh * v[0]; cw = ch * sa; x = bw / 2 - cw * v[1]; y = bh / 2 - ch * v[2]; rot = Math.toDegrees(v[3].toDouble()).toFloat(); bg = Color(v[6], v[7], v[8]) }
+        else -> { val r = WeScene.rect(v, ca, sa); cw = bw / r[2]; ch = bh / r[3]; x = -cw * r[0]; y = -ch * r[1] }
+    }
+    val flip = on && v[4] > .5f
+    Box(Modifier.fillMaxSize().background(bg)) {
+        Box(Modifier.fillMaxSize().graphicsLayer { rotationZ = rot }) {
+            Layout(content = content, modifier = Modifier.graphicsLayer {
+                transformOrigin = androidx.compose.ui.graphics.TransformOrigin(0f, 0f)
+                val sx = cw.toPx() / baseW.toPx().coerceAtLeast(1f)
+                scaleX = if (flip) -sx else sx
+                scaleY = ch.toPx() / baseH.toPx().coerceAtLeast(1f)
+                translationX = x.toPx() + if (flip) cw.toPx() else 0f
+                translationY = y.toPx()
+            }) { measurables, constraints ->
+                val placeables = measurables.map { it.measure(Constraints.fixed(baseW.roundToPx().coerceAtLeast(1), baseH.roundToPx().coerceAtLeast(1))) }
+                layout(constraints.maxWidth, constraints.maxHeight) { placeables.forEach { it.place(0, 0) } }
+            }
+        }
     }
 }
 
@@ -593,6 +645,7 @@ internal fun WallpaperPage(onBack: () -> Unit) {
                             if (w.kind == "scene") KOption("官方引擎", false) {
                                 AppSheet.close()
                                 WeOfficial.retry(ctx, w.id)
+                                if (Walls.current == w.id) Walls.epoch++
                                 scope.launch {
                                     // 上次探测时 App 崩了：先给看停在哪一步，下次再点才重新探
                                     val left = WeOfficial.leftover(ctx)
