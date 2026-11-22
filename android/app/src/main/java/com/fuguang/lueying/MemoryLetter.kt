@@ -95,6 +95,8 @@ object MemMenu {
     /** 按住的那一行（菜单、确认开着时一直灰着）。 */
     var held by mutableStateOf<String?>(null)
     var deleting by mutableStateOf<Mem?>(null)
+    /** 正在加星 / 取消星的那条（id 和要变成的样子）：纸上的星先照它变，数据过一拍才改。 */
+    var starring by mutableStateOf<Pair<String, Boolean>?>(null)
     fun open(m: Mem, at: Rect) { anchor = at; held = m.id; mem = m }
     fun close() { mem = null; if (deleting == null) held = null }
 }
@@ -138,6 +140,7 @@ internal fun MemLine(m: Mem, onOpen: () -> Unit) {
 @Composable
 internal fun MemMenuLayer(p: Persona, onDeleted: (Mem, Int) -> Unit) {
     val scope = rememberCoroutineScope()
+    val haptic = LocalHapticFeedback.current
     DisposableEffect(p.id) { onDispose { MemMenu.mem = null; MemMenu.deleting = null; MemMenu.held = null } }
     var origin by remember { mutableStateOf(Offset.Zero) }
     BoxWithConstraints(Modifier.fillMaxSize().onGloballyPositioned { origin = it.boundsInRoot().topLeft }) {
@@ -185,7 +188,15 @@ internal fun MemMenuLayer(p: Persona, onDeleted: (Mem, Int) -> Unit) {
                 }
                 // 星 = 一直记着；周月年那几份是收拢出来的，不给加
                 if (!m.span) MenuItem(starGlyph, if (m.rule) "取消星" else "加星", red = false, filled = m.rule) {
-                    scope.launch { delay(90); MemMenu.held = null; MemMenu.close(); Memory.star(p, m.id, !m.rule) }
+                    scope.launch {
+                        val on = !m.rule
+                        delay(90); MemMenu.held = null; MemMenu.close()
+                        // 星先在原地落下或收起，停一拍，卡片再挪到另一组
+                        MemMenu.starring = m.id to on
+                        haptic.performHapticFeedback(HapticFeedbackType.TextHandleMove)
+                        delay(560)
+                        Memory.star(p, m.id, on); MemMenu.starring = null
+                    }
                 }
                 // 删了不再先问：底下「撤销」4 秒内能放回去
                 MenuItem(trash, "删除", red = true, filled = false) {
@@ -247,6 +258,52 @@ private fun star(cx: Float, cy: Float, r: Float) = Path().apply {
  * 进场一张张浮上来（间隔 40ms，420ms 减速）；按下缩一点；长按变暗、出删除菜单（[MemMenu]）。
  */
 @OptIn(ExperimentalFoundationApi::class)
+/**
+ * 一张纸：折角、正文前几行、右上角的星。平铺（NoteCard）和收束（MemOrbit）共用。
+ * k 是按住的程度（0–1，压暗）。搜索时命中的字标出来（MemFind）。
+ * 星跟着 [MemMenu.starring] 先变：长按「加星 / 取消星」时星先在原地弹出来或收起，停一拍数据才改、卡片才挪到另一组。
+ */
+@Composable
+internal fun NotePaper(m: Mem, k: Float, modifier: Modifier = Modifier, lines: Int = 7) {
+    val shape = remember { NoteShape(30.dp, 18.dp) }
+    val paras = MemTree.body(m).split('\n').map { it.trim() }.filter { it.isNotEmpty() }
+    val terms = MemFind.terms
+    val starOn = MemMenu.starring?.takeIf { it.first == m.id }?.second ?: m.rule
+    val st by animateFloatAsState(if (starOn) 1f else 0f, if (starOn) androidx.compose.animation.core.spring<Float>(.42f, 420f) else tween<Float>(160, easing = Curves.accel), label = "noteStar")
+    Box(modifier) {
+        Column(
+            Modifier.fillMaxSize().background(Skin.note, shape)
+                .drawBehind {
+                    // 折角：右上角那一小块三角，颜色比纸深一层
+                    val c = 30.dp.toPx()
+                    val fold = Path().apply { moveTo(size.width - c, 0f); lineTo(size.width - c, c - 6.dp.toPx()); quadraticTo(size.width - c, c, size.width - c + 6.dp.toPx(), c); lineTo(size.width, c); close() }
+                    drawPath(fold, Skin.noteFold)
+                }
+                .drawWithContent { drawContent(); if (k > 0f) drawRect(Skin.scrim(.28f * k)) }
+                .padding(start = 14.dp, end = 16.dp, top = 16.dp, bottom = 12.dp),
+        ) {
+            val style = TextStyle(fontSize = 13.sp, lineHeight = 21.sp)
+            // 第一段是墨色、稍重，后面的淡一档；第一段后面换行
+            val head = paras.firstOrNull().orEmpty()
+            val rest = paras.drop(1).joinToString("")
+            val full = if (rest.isEmpty()) head else head + "\n" + rest
+            val text = androidx.compose.ui.text.AnnotatedString.Builder(full).apply {
+                addStyle(androidx.compose.ui.text.SpanStyle(color = Page.ink, fontWeight = FontWeight.Medium), 0, head.length)
+                if (full.length > head.length) addStyle(androidx.compose.ui.text.SpanStyle(color = Page.muted), head.length, full.length)
+                MemFind.mark(this, full, terms, MemFind.rank(m, terms) == 2, Skin.accent)
+            }.toAnnotatedString()
+            androidx.compose.foundation.text.BasicText(
+                text,
+                Modifier.fillMaxWidth().padding(end = 12.dp),
+                style = style.copy(fontFamily = Sans), maxLines = lines, overflow = androidx.compose.ui.text.style.TextOverflow.Ellipsis,
+            )
+        }
+        if (st > 0f) Canvas(Modifier.align(Alignment.TopEnd).offset(x = 2.dp, y = (-6).dp).size(20.dp).graphicsLayer { scaleX = st; scaleY = st; alpha = st.coerceIn(0f, 1f); rotationZ = (1f - st) * -40f }) {
+            drawPath(star(size.width / 2, size.height / 2, size.minDimension / 2), Skin.accent)
+        }
+    }
+}
+
 @Composable
 internal fun NoteCard(m: Mem, kids: Int, index: Int, modifier: Modifier, onOpen: () -> Unit) {
     val src = remember { MutableInteractionSource() }
@@ -257,8 +314,6 @@ internal fun NoteCard(m: Mem, kids: Int, index: Int, modifier: Modifier, onOpen:
     val k by animateFloatAsState(if (held) 1f else if (pressed) .5f else 0f, tween(if (pressed || held) 60 else 220), label = "noteHeld")
     val enter = remember(m.id) { Animatable(0f) }
     LaunchedEffect(m.id) { delay(40L * index.coerceAtMost(12)); enter.animateTo(1f, tween(420, easing = Curves.decel)) }
-    val shape = remember { NoteShape(30.dp, 18.dp) }
-    val paras = MemTree.body(m).split('\n').map { it.trim() }.filter { it.isNotEmpty() }
     Column(
         modifier
             .graphicsLayer {
@@ -273,35 +328,7 @@ internal fun NoteCard(m: Mem, kids: Int, index: Int, modifier: Modifier, onOpen:
             }),
         horizontalAlignment = Alignment.CenterHorizontally,
     ) {
-        Box(Modifier.fillMaxWidth().aspectRatio(1f)) {
-            Column(
-                Modifier.fillMaxSize().background(Skin.note, shape)
-                    .drawBehind {
-                        // 折角：右上角那一小块三角，颜色比纸深一层
-                        val c = 30.dp.toPx()
-                        val fold = Path().apply { moveTo(size.width - c, 0f); lineTo(size.width - c, c - 6.dp.toPx()); quadraticTo(size.width - c, c, size.width - c + 6.dp.toPx(), c); lineTo(size.width, c); close() }
-                        drawPath(fold, Skin.noteFold)
-                    }
-                    .drawWithContent { drawContent(); if (k > 0f) drawRect(Skin.scrim(.28f * k)) }
-                    .padding(start = 14.dp, end = 16.dp, top = 16.dp, bottom = 12.dp),
-            ) {
-                val style = TextStyle(fontSize = 13.sp, lineHeight = 21.sp)
-                androidx.compose.foundation.text.BasicText(
-                    androidx.compose.ui.text.buildAnnotatedString {
-                        paras.forEachIndexed { i, t ->
-                            if (i == 0) pushStyle(androidx.compose.ui.text.SpanStyle(color = Page.ink, fontWeight = FontWeight.Medium)) else pushStyle(androidx.compose.ui.text.SpanStyle(color = Page.muted))
-                            append(t); if (i < paras.lastIndex) append(if (i == 0) "\n" else "")
-                            pop()
-                        }
-                    },
-                    Modifier.fillMaxWidth().padding(end = 12.dp),
-                    style = style.copy(fontFamily = Sans), maxLines = 7, overflow = androidx.compose.ui.text.style.TextOverflow.Ellipsis,
-                )
-            }
-            if (m.rule) Canvas(Modifier.align(Alignment.TopEnd).offset(x = 2.dp, y = (-6).dp).size(20.dp)) {
-                drawPath(star(size.width / 2, size.height / 2, size.minDimension / 2), Skin.accent)
-            }
-        }
+        NotePaper(m, k, Modifier.fillMaxWidth().aspectRatio(1f))
         Txt(Memory.ownWords(m.text), Page.ink, 14.sp, Modifier.fillMaxWidth().padding(top = 10.dp), weight = FontWeight.SemiBold, align = TextAlign.Center, lineHeight = 20.sp, maxLines = 2)
         Txt(
             listOfNotNull(if (m.pin) "常驻" else null, if (m.span) "$kids 份" else null, MemTree.kindZh(m.kind), MemTree.date(m)).joinToString(" · "),

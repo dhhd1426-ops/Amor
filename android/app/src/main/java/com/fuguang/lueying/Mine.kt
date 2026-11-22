@@ -895,24 +895,45 @@ private fun ColumnScope.MemBookScreen(p: Persona, compact: Boolean, nav: MineNav
     var undo by remember { mutableStateOf<Pair<Mem, Int>?>(null) }
     var dropping by remember { mutableStateOf<Pact?>(null) }
     LaunchedEffect(undo) { if (undo != null) { kotlinx.coroutines.delay(4000); undo = null } }
+    // 排法（收束 / 平铺）记在 prefs；搜索的字离开这页就清掉
+    val memCtx = androidx.compose.ui.platform.LocalContext.current
+    LaunchedEffect(Unit) { MemFind.flat = Prefs(memCtx).string("mem-flat") == "1" }
+    androidx.compose.runtime.DisposableEffect(Unit) { onDispose { MemFind.q = "" } }
     Title("记忆", compact, onBack = { nav.back() }) {
-        Pressable({ menu = !menu }, label = "菜单") { pr ->
-            SvgIcon(menuIc, if (pr) Page.muted else Page.ink, 24.dp, modifier = Modifier.padding(6.dp))
+        Row(verticalAlignment = Alignment.CenterVertically) {
+            MemModeSwitch { flat -> MemFind.flat = flat; Prefs(memCtx).putString("mem-flat", if (flat) "1" else "0") }
+            Spacer(Modifier.width(6.dp))
+            Pressable({ menu = !menu }, label = "菜单") { pr ->
+                SvgIcon(menuIc, if (pr) Page.muted else Page.ink, 24.dp, modifier = Modifier.padding(6.dp))
+            }
         }
     }
+    // 搜索：精准的排前面，相近的排后面（MemFind）；一组里一条都没对上，这组不显示
+    val terms = MemFind.terms
+    val found = MemTree.sections(p).map { sec ->
+        sec to (if (terms.isEmpty()) sec.items else sec.items.map { it to MemFind.rank(it, terms) }.filter { it.second > 0 }.sortedByDescending { it.second }.map { it.first })
+    }.filter { it.second.isNotEmpty() }
+    val total = found.sumOf { it.second.size }
+    val exact = if (terms.isEmpty()) 0 else found.sumOf { pair -> pair.second.count { MemFind.rank(it, terms) == 2 } }
+    val hits = when { terms.isEmpty() -> ""; total == exact -> "$total 条"; exact == 0 -> "相近 $total 条"; else -> "$exact 条 · 相近 ${total - exact}" }
+    MemFindBar(hits, Modifier.padding(bottom = 10.dp))
     Box(Modifier.weight(1f).fillMaxWidth()) {
         androidx.compose.foundation.layout.BoxWithConstraints(Modifier.fillMaxSize()) {
             val cols = when { maxWidth >= 640.dp -> 4; maxWidth >= 460.dp -> 3; else -> 2 }
-            val secs = MemTree.sections(p)
+            val secs = found
             Column(Modifier.fillMaxSize().verticalScroll(rememberScrollState()).padding(bottom = 32.dp)) {
                 val pacts = Pacts.of(p.id)
-                if (secs.isEmpty() && pacts.isEmpty()) Txt(
+                if (terms.isNotEmpty() && secs.isEmpty()) Txt(
+                    "没有和「${terms.joinToString(" ")}」对得上的记忆", Page.muted, 14.sp,
+                    Modifier.fillMaxWidth().padding(top = 60.dp, start = 12.dp, end = 12.dp), align = androidx.compose.ui.text.style.TextAlign.Center,
+                )
+                if (terms.isEmpty() && secs.isEmpty() && pacts.isEmpty()) Txt(
                     "我们聊过的、你说起你自己的、你喜欢我怎么陪你的，我都会记在这儿。", Page.ink.copy(alpha = .7f), 14.sp,
                     Modifier.fillMaxWidth().padding(top = 40.dp, start = 12.dp, end = 12.dp), lineHeight = 24.sp, align = androidx.compose.ui.text.style.TextAlign.Center,
                 )
                 var idx = 0
                 // 约定（Pacts.kt）：到点她会主动找你；放在最上面，长按取消
-                if (pacts.isNotEmpty()) {
+                if (pacts.isNotEmpty() && terms.isEmpty()) {
                     Row(Modifier.padding(start = 2.dp, top = 4.dp, bottom = 14.dp), verticalAlignment = Alignment.Bottom) {
                         Txt("约定", Page.ink, 16.sp, weight = FontWeight.SemiBold, maxLines = 1)
                         Spacer(Modifier.width(10.dp))
@@ -926,19 +947,24 @@ private fun ColumnScope.MemBookScreen(p: Persona, compact: Boolean, nav: MineNav
                         }
                     }
                 }
-                secs.forEach { s ->
-                    Row(Modifier.padding(start = 2.dp, top = 4.dp, bottom = 14.dp), verticalAlignment = Alignment.Bottom) {
-                        Txt(s.name, Page.ink, 16.sp, weight = FontWeight.SemiBold, maxLines = 1)
-                        Spacer(Modifier.width(10.dp))
-                        Txt(s.sub, Page.muted, 12.sp, maxLines = 1)
-                    }
-                    s.items.chunked(cols).forEach { row ->
-                        Row(Modifier.fillMaxWidth().padding(bottom = 24.dp), horizontalArrangement = Arrangement.spacedBy(16.dp)) {
-                            row.forEach { m ->
-                                val i = idx++
-                                NoteCard(m, MemTree.kids(p, m).size, i, Modifier.weight(1f)) { nav.letterFrom = ""; nav.screen = "letter/${m.id}" }
+                secs.forEach { (s, list) ->
+                    // 收束：这一组收成一道弧（MemOrbit）；平铺：原来的格子
+                    if (!MemFind.flat) {
+                        androidx.compose.runtime.key(s.name) { MemOrbit(p, s.name, list) { m -> nav.letterFrom = ""; nav.screen = "letter/${m.id}" } }
+                    } else {
+                        Row(Modifier.padding(start = 2.dp, top = 4.dp, bottom = 14.dp), verticalAlignment = Alignment.Bottom) {
+                            Txt(s.name, Page.ink, 16.sp, weight = FontWeight.SemiBold, maxLines = 1)
+                            Spacer(Modifier.width(10.dp))
+                            Txt(if (terms.isEmpty()) s.sub else "${list.size} 条", Page.muted, 12.sp, maxLines = 1)
+                        }
+                        list.chunked(cols).forEach { row ->
+                            Row(Modifier.fillMaxWidth().padding(bottom = 24.dp), horizontalArrangement = Arrangement.spacedBy(16.dp)) {
+                                row.forEach { m ->
+                                    val i = idx++
+                                    NoteCard(m, MemTree.kids(p, m).size, i, Modifier.weight(1f)) { nav.letterFrom = ""; nav.screen = "letter/${m.id}" }
+                                }
+                                repeat(cols - row.size) { Spacer(Modifier.weight(1f)) }
                             }
-                            repeat(cols - row.size) { Spacer(Modifier.weight(1f)) }
                         }
                     }
                 }
