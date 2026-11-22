@@ -1,0 +1,30 @@
+name: Publish check APK 556
+
+on:
+  push:
+    branches: [release/check-apk-556]
+
+permissions:
+  actions: read
+  contents: write
+
+jobs:
+  publish:
+    runs-on: ubuntu-latest
+    env:
+      GH_TOKEN: ${{ github.token }}
+      GH_REPO: ${{ github.repository }}
+    steps:
+      - name: Verify and publish the existing APK
+        shell: bash
+        run: |
+          set -euo pipefail
+          gh api "repos/$GH_REPO/actions/artifacts/14734083298/zip" > artifact.zip
+          echo "3cf36faeea994a63547ffdbb59eb1a39576fa619021e9f1b06e91814ccf1462e  artifact.zip" | sha256sum -c
+          unzip -p artifact.zip fuguang-lueying-556.apk > fuguang-lueying-556.apk
+          test -s fuguang-lueying-556.apk
+          unzip -tq fuguang-lueying-556.apk
+          gh release create app-build-556 fuguang-lueying-556.apk \
+            --target 2f64eff2e0c2a51cf3da21e276c3b2aa9780cf91 --prerelease \
+            --title "浮光掠影 App 第 556 版" \
+            --notes "官方引擎自检：崩溃保护、取景面板恢复。构建记录：https://github.com/dhhd1426-ops/Amor/actions/runs/44971999241"
