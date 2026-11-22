@@ -645,7 +645,7 @@ internal fun WallpaperPage(onBack: () -> Unit) {
                     SvgIcon(wallBack, Page.ink, 20.dp, stroke = 1.6f, modifier = Modifier.align(Alignment.Center))
                 }
                 Spacer(Modifier.width(6.dp))
-                Txt("壁纸", Page.ink, 19.sp, Modifier.weight(1f), spacing = ls(2.6f, 19f), family = Serif, maxLines = 1)
+                Txt("Wallpaper 引擎", Page.ink, 19.sp, Modifier.weight(1f), family = Serif, maxLines = 1)
                 PressSurface({ pick.launch(arrayOf("*/*")) }, Modifier.size(40.dp), shape = CircleShape, fill = Color.Transparent, pressScale = .9f, label = "导入") {
                     SvgIcon(wallImport, Skin.accent, 21.dp, stroke = 1.7f, modifier = Modifier.align(Alignment.Center))
                 }

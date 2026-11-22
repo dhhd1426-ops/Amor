@@ -233,7 +233,7 @@ private fun MineCardList(store: AssistantStore, t: Float, onGo: (String) -> Unit
     }
     Spacer(Modifier.height(6.dp))
     Column(Modifier.spot("wall")) {
-        MineRow(5, t, "壁纸", "", { onGo("wallpaper") }, glyph = { SvgIcon(WallGlyph, warm, 19.dp, stroke = 1.5f) }) {
+        MineRow(5, t, "Wallpaper 引擎", "", { onGo("wallpaper") }, glyph = { SvgIcon(WallGlyph, warm, 19.dp, stroke = 1.5f) }) {
             Txt(Walls.name(), Page.muted, 13.5.sp, Modifier.widthIn(max = 150.dp), maxLines = 1)
             Spacer(Modifier.width(4.dp))
             SvgIcon(chevron, Page.muted.copy(alpha = .6f), 15.dp, stroke = 1.8f)
