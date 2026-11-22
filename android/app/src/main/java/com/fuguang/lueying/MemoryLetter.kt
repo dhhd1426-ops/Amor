@@ -100,7 +100,7 @@ object MemMenu {
 }
 
 private val pencil = Ic("M5 19l1-4L15.5 5.5a2.1 2.1 0 0 1 3 3L9 18l-4 1ZM13.5 7.5l3 3")
-private val star = Ic(STAR)
+private val starGlyph = Ic(STAR)
 private val trash = Ic("M4.5 7h15M9.5 7V5h5v2M6.5 7l1 12.5h9l1-12.5M10 11v5M14 11v5")
 private val back = Ic("M14.5 6l-6 6 6 6")
 
@@ -184,7 +184,7 @@ internal fun MemMenuLayer(p: Persona, onDeleted: (Mem, Int) -> Unit) {
                     scope.launch { delay(90); MemMenu.held = null; MemMenu.close(); MemEdit.open(p, m, onDeleted) }
                 }
                 // 星 = 一直记着；周月年那几份是收拢出来的，不给加
-                if (!m.span) MenuItem(star, if (m.rule) "取消星" else "加星", red = false, filled = m.rule) {
+                if (!m.span) MenuItem(starGlyph, if (m.rule) "取消星" else "加星", red = false, filled = m.rule) {
                     scope.launch { delay(90); MemMenu.held = null; MemMenu.close(); Memory.star(p, m.id, !m.rule) }
                 }
                 // 删了不再先问：底下「撤销」4 秒内能放回去
