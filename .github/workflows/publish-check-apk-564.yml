@@ -1,0 +1,31 @@
+name: Publish check APK 564
+
+on:
+  push:
+    branches: [release/check-apk-564]
+
+permissions:
+  actions: read
+  contents: write
+
+jobs:
+  publish:
+    runs-on: ubuntu-latest
+    env:
+      GH_TOKEN: ${{ github.token }}
+      GH_REPO: ${{ github.repository }}
+    steps:
+      - name: Verify and publish the existing APK
+        shell: bash
+        run: |
+          set -euo pipefail
+          gh api "repos/$GH_REPO/actions/artifacts/14758277937/zip" > artifact.zip
+          echo "5888648962848df76dba2543e4ff157e488ca131c761514951f4756356ac9f10  artifact.zip" | sha256sum -c
+          unzip -l artifact.zip
+          unzip -p artifact.zip fuguang-lueying-564.apk > fuguang-lueying-564.apk
+          test -s fuguang-lueying-564.apk
+          unzip -tq fuguang-lueying-564.apk
+          gh release create app-build-564 fuguang-lueying-564.apk \
+            --target 89f760a97dfbeb4d5988b82496464db32b9c0081 --prerelease \
+            --title "浮光掠影 App 第 564 版" \
+            --notes "GPT 控制台：登录时不再被后台冻住（点同意后浏览器一直转圈）；诊断加「发出去的」和「花的时间」两栏。构建记录：https://github.com/dhhd1426-ops/Amor/actions/runs/45032139532"
