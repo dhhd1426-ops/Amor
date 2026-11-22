@@ -459,7 +459,8 @@ private fun SceneFrame(w: Wall, bw: Dp, bh: Dp, on: Boolean, content: @Composabl
     val v = w.view; val sa = w.aspect.coerceIn(.2f, 5f)
     val ca = bw.value / bh.value.coerceAtLeast(1f)
     // 表面：整张壁纸的比例，刚好盖住屏幕那么大
-    val k = max(1f, ca / sa)
+    // 超宽的壁纸（5120×1440 那种）整张按屏幕高度画会有两三屏宽，表面太大：最宽两屏，再宽就整体缩一点
+    val k = max(1f, ca / sa).let { if (it * sa > 2f * ca) 2f * ca / sa else it }
     val baseW = if (on) bh * (k * sa) else bw; val baseH = if (on) bh * k else bh
     // 整张壁纸在屏幕上的位置和大小
     var x = 0.dp; var y = 0.dp; var cw = bw; var ch = bh; var rot = 0f; var bg = Color.Transparent
