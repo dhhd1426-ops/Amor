@@ -84,6 +84,7 @@ import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.layout.Layout
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.platform.LocalHapticFeedback
 import androidx.compose.ui.unit.Constraints
 import androidx.compose.ui.unit.Dp
@@ -145,6 +146,8 @@ internal object Walls {
     /** 场景要听声音但还没给权限：进壁纸页时问一次 */
     var needMic by mutableStateOf(false)
     var micOk: (() -> Unit)? = null
+    /** 屏幕上的手指（像素、按着没有）→ 正在放的场景壁纸；App 根上只看不拦地喂进来 */
+    @Volatile var touch: ((Float, Float, Boolean) -> Unit)? = null
     /** 加一：正在放的场景壁纸整个重新载入 */
     var epoch by mutableIntStateOf(0)
     /** 屏幕宽高比 */
@@ -370,6 +373,21 @@ private class WeHost(ctx: Context, private val wall: Wall, private val onReady: 
         else if (!Walls.micAsked()) { Walls.micOk = { viz.start() }; Walls.needMic = true }
     }
 
+    /** [SceneFrame] 每次重排写进来（像素）：整张画面的左上角 x y、宽、高、转了多少弧度、翻没翻（0/1）、屏幕宽、高 */
+    @Volatile var frame = FloatArray(8)
+
+    /** 屏幕上的手指 → 整张画面上的位置，交给官方引擎（自带渲染器没有触摸） */
+    fun touch(px: Float, py: Float, down: Boolean) {
+        val t = thread as? WeOfficialThread ?: return
+        val f = frame; if (f[2] <= 0f || f[3] <= 0f) return
+        // 先把绕屏幕中心的旋转转回去，再减掉左上角、除以大小
+        val cx = f[6] / 2; val cy = f[7] / 2; val cs = kotlin.math.cos(-f[4]); val sn = kotlin.math.sin(-f[4])
+        val qx = cx + (px - cx) * cs - (py - cy) * sn; val qy = cy + (px - cx) * sn + (py - cy) * cs
+        var u = (qx - f[0]) / f[2]; val v = (qy - f[1]) / f[3]
+        if (f[5] > .5f) u = 1f - u
+        t.touch(u, v, down)
+    }
+
     override fun onSurfaceTextureAvailable(st: SurfaceTexture, w: Int, h: Int) {
         stop()
         // 第 553 版起先走官方引擎（借手机上官方 App 的 libscenejni.so），画面和官方一模一样；没装、起不来或崩过才用自带渲染器
@@ -379,11 +397,12 @@ private class WeHost(ctx: Context, private val wall: Wall, private val onReady: 
 
     private fun startOfficial(st: SurfaceTexture, w: Int, h: Int) {
         var me: WeRunner? = null
-        val t = WeOfficialThread(app, st, w, h, wall.id, wall.path, onReady = { aspect, info ->
+        val t = WeOfficialThread(app, st, w, h, wall.id, wall.path, speed, bands, onReady = { aspect, info, au ->
             main.post {
                 if (closed || thread !== me) return@post
                 wall.aspect = aspect
                 wall.diag = Walls.diagHead(wall) + info + "\n\n全部交给官方引擎画"
+                if (au && !audio) { audio = true; if (playing) startViz() }
                 onReady(true, true)
             }
         }, onFail = { err ->
@@ -436,12 +455,16 @@ private fun SceneWall(w: Wall, playing: Boolean) {
     var official by remember { mutableStateOf(false) }
     val a by animateFloatAsState(if (ready) 1f else 0f, tween(460, easing = Curves.standard), label = "sceneIn")
     val host = remember(w.id) { WeHost(ctx, w) { ok, off -> ready = ok; official = off } }
-    DisposableEffect(host) { onDispose { host.close() } }
+    DisposableEffect(host) {
+        val fn: (Float, Float, Boolean) -> Unit = { x, y, down -> host.touch(x, y, down) }
+        Walls.touch = fn
+        onDispose { if (Walls.touch === fn) Walls.touch = null; host.close() }
+    }
     LaunchedEffect(host, playing) { host.playing = playing }
     BoxWithConstraints(Modifier.fillMaxSize().clipToBounds().background(Page.ground)) {
         // 解包、解贴图要一两秒：先垫包里的预览图
         if (poster != null && a < 1f) Image(poster, null, Modifier.fillMaxSize(), contentScale = ContentScale.Crop)
-        SceneFrame(w, maxWidth, maxHeight, official) {
+        SceneFrame(w, maxWidth, maxHeight, official, { host.frame = it }) {
             AndroidView(factory = { c -> TextureView(c).also { it.surfaceTextureListener = host } }, modifier = Modifier.fillMaxSize().alpha(a))
         }
     }
@@ -454,13 +477,16 @@ private fun SceneWall(w: Wall, playing: Boolean) {
  * 两种情况是同一棵界面树，只是数不同——换了结构 TextureView 会重建，引擎要重新载入。
  */
 @Composable
-private fun SceneFrame(w: Wall, bw: Dp, bh: Dp, on: Boolean, content: @Composable () -> Unit) {
+private fun SceneFrame(w: Wall, bw: Dp, bh: Dp, on: Boolean, onFrame: (FloatArray) -> Unit, content: @Composable () -> Unit) {
     @Suppress("UNUSED_EXPRESSION") Walls.tick // 取景变了就重排
     val v = w.view; val sa = w.aspect.coerceIn(.2f, 5f)
     val ca = bw.value / bh.value.coerceAtLeast(1f)
     // 表面：整张壁纸的比例，刚好盖住屏幕那么大
-    // 超宽的壁纸（5120×1440 那种）整张按屏幕高度画会有两三屏宽，表面太大：最宽两屏，再宽就整体缩一点
-    val k = max(1f, ca / sa).let { if (it * sa > 2f * ca) 2f * ca / sa else it }
+    // 默认取景下表面的一个像素正好是屏幕的一个像素，不能为了省内存缩小它：
+    // 第 556 版把超宽壁纸（5120×1440）的表面限在两屏宽，画面先缩再放大，用户一眼看出糊。只防离谱的大小（8192 像素宽）。
+    val den = LocalDensity.current
+    val capW = with(den) { 8192.toDp() }
+    val k = max(1f, ca / sa).let { if (bh * (it * sa) > capW) capW.value / (bh.value * sa) else it }
     val baseW = if (on) bh * (k * sa) else bw; val baseH = if (on) bh * k else bh
     // 整张壁纸在屏幕上的位置和大小
     var x = 0.dp; var y = 0.dp; var cw = bw; var ch = bh; var rot = 0f; var bg = Color.Transparent
@@ -470,6 +496,8 @@ private fun SceneFrame(w: Wall, bw: Dp, bh: Dp, on: Boolean, content: @Composabl
         else -> { val r = WeScene.rect(v, ca, sa); cw = bw / r[2]; ch = bh / r[3]; x = -cw * r[0]; y = -ch * r[1] }
     }
     val flip = on && v[4] > .5f
+    val f = with(den) { floatArrayOf(x.toPx(), y.toPx(), cw.toPx(), ch.toPx(), Math.toRadians(rot.toDouble()).toFloat(), if (flip) 1f else 0f, bw.toPx(), bh.toPx()) }
+    SideEffect { onFrame(f) }
     Box(Modifier.fillMaxSize().background(bg)) {
         Box(Modifier.fillMaxSize().graphicsLayer { rotationZ = rot }) {
             Layout(content = content, modifier = Modifier.graphicsLayer {

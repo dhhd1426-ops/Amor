@@ -215,8 +215,12 @@ internal class WeOfficialThread(
     @Volatile override var w: Int, @Volatile override var h: Int,
     private val wallId: String,
     private val file: File,
-    /** GL 线程上回调：画出第一帧了；宽高比、诊断信息 */
-    private val onReady: (aspect: Float, info: String) -> Unit,
+    /** 播放速度（壁纸设置里的「速度」）：官方引擎认 rate 属性，值是百分数 */
+    private val speed: () -> Float,
+    /** 频谱 64 段、0–1；没在放声音是 null */
+    private val bands: () -> FloatArray?,
+    /** GL 线程上回调：画出第一帧了；宽高比、诊断信息、这张要不要听声音 */
+    private val onReady: (aspect: Float, info: String, audio: Boolean) -> Unit,
     /** 收尾后回调：没起来的原因、停在哪一步 */
     private val onFail: (error: String) -> Unit,
 ) : Thread("we-official"), WeRunner {
@@ -225,6 +229,15 @@ internal class WeOfficialThread(
     private var step = ""
 
     override fun finish() { quit = true; interrupt() }
+
+    // 手指：位置是占整张画面的比例（左上为原点），渲染线程每帧取走
+    @Volatile private var tu = 0f
+    @Volatile private var tv = 0f
+    @Volatile private var tdown = false
+    @Volatile private var tnew = false
+    /** 按下过：点一下很快，按下和抬起可能落在同一帧里，得保证引擎至少看到一帧「按着」 */
+    @Volatile private var tap = false
+    fun touch(u: Float, v: Float, down: Boolean) { tu = u; tv = v; tdown = down; if (down) tap = true; tnew = true }
 
     /** 记号在不在（只在渲染线程上动） */
     private var marked = false
@@ -263,12 +276,30 @@ internal class WeOfficialThread(
 
             var frames = 0; var ready = false
             val canvas = PointF()
+            val wantsAudio = runCatching { WePack(file).use { p -> org.json.JSONObject(p.text("project.json") ?: "{}").optJSONObject("general")?.optBoolean("supportsaudioprocessing") == true } }.getOrDefault(false)
+            var rate = 1f; var silent = true
             while (!quit) {
                 // 暂停（切后台）时不碰引擎：擦掉记号，这时候 App 被系统收走不算崩
                 if (!playing) { if (marked) { marked = false; WeOfficial.unmark(app, wallId) }; try { sleep(80) } catch (_: InterruptedException) {}; continue }
                 val now = System.nanoTime()
                 if (frames == 0) at("画第一帧（updateScene）") else if (!marked) at(step)
                 if (w != sw || h != sh) { sw = w; sh = h; WeOfficial.call(l, "resizeScene", id, sw, sh) }
+                // 速度：applySceneProperties 里 rate.value 是百分数（引擎自己除以 100）
+                val sp = speed().coerceIn(.25f, 2f)
+                if (sp != rate) { rate = sp; WeOfficial.call(l, "applySceneProperties", id, "{\"rate\":{\"value\":${(sp * 100).toInt()}}}") }
+                // 频谱：sendAudioData 读 64 个数，引擎自己分左右、合成 32 和 16 段；没声音时补一次全 0，条才落得下去
+                if (wantsAudio) {
+                    val b = bands()
+                    if (b != null && b.size >= 64) { WeOfficial.call(l, "sendAudioData", id, if (b.size == 64) b else b.copyOf(64)); silent = false }
+                    else if (!silent) { silent = true; WeOfficial.call(l, "sendAudioData", id, FloatArray(64)) }
+                }
+                // 手指：sendTouchInput(id, 按着没有, x, y)，x y 是表面上的像素
+                if (tnew) {
+                    tnew = false
+                    val d = tdown || tap; tap = false
+                    WeOfficial.call(l, "sendTouchInput", id, d, tu.coerceIn(0f, 1f) * sw, tv.coerceIn(0f, 1f) * sh)
+                    if (d && !tdown) tnew = true // 下一帧再补抬起
+                }
                 WeOfficial.call(l, "updateScene", id)
                 if (!EGL14.eglSwapBuffers(dpy, surf)) break // 表面没了
                 frames++
@@ -277,7 +308,7 @@ internal class WeOfficialThread(
                     ready = true
                     // 记号不擦：画到一半才崩也要记得住，不然每次打开都崩（第 554 版画出第一帧就擦了）
                     at("已经画出来，画着画着退出的")
-                    onReady(canvas.x / canvas.y, "渲染：官方引擎（Wallpaper Engine ${WeEngine.version(app) ?: ""}）\n显卡：$gpu\n画布 ${canvas.x.toInt()}×${canvas.y.toInt()} · 画面 ${sw}×${sh}")
+                    onReady(canvas.x / canvas.y, "渲染：官方引擎（Wallpaper Engine ${WeEngine.version(app) ?: ""}）\n显卡：$gpu\n画布 ${canvas.x.toInt()}×${canvas.y.toInt()} · 画面 ${sw}×${sh}\n频谱：${if (wantsAudio) "这张要听声音" else "这张不用"}", wantsAudio)
                 }
                 // 30 秒还没载完：当它没起来
                 if (!ready && frames > 900) throw IllegalStateException("30 秒还没载完")

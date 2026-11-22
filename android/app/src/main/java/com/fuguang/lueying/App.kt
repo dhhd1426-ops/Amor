@@ -155,7 +155,11 @@ fun FuguangApp(prefs: Prefs, fullscreen: Boolean, setFullscreen: (Boolean) -> Un
             // 任何一次碰屏幕（点、滑、拖）都从头计时；只看不拦
             .pointerInput(Unit) {
                 awaitPointerEventScope {
-                    while (true) { awaitPointerEvent(androidx.compose.ui.input.pointer.PointerEventPass.Initial); Zen.touch() }
+                    while (true) {
+                        val e = awaitPointerEvent(androidx.compose.ui.input.pointer.PointerEventPass.Initial); Zen.touch()
+                        // 场景壁纸的触摸互动：和系统动态壁纸一样，碰哪儿它都知道，界面照常用
+                        Walls.touch?.let { t -> e.changes.firstOrNull()?.let { c -> t(c.position.x, c.position.y, c.pressed) } }
+                    }
                 }
             },
     ) {
