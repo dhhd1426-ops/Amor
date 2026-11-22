@@ -1,0 +1,31 @@
+name: Publish check APK 559
+
+on:
+  push:
+    branches: [release/check-apk-559]
+
+permissions:
+  actions: read
+  contents: write
+
+jobs:
+  publish:
+    runs-on: ubuntu-latest
+    env:
+      GH_TOKEN: ${{ github.token }}
+      GH_REPO: ${{ github.repository }}
+    steps:
+      - name: Verify and publish the existing APK
+        shell: bash
+        run: |
+          set -euo pipefail
+          gh api "repos/$GH_REPO/actions/artifacts/14738144540/zip" > artifact.zip
+          echo "4d405484262a42b9f270514df4a02b1da5ad9301727aeaccc8b1721d22ac86e9  artifact.zip" | sha256sum -c
+          unzip -l artifact.zip
+          unzip -p artifact.zip fuguang-lueying-559.apk > fuguang-lueying-559.apk
+          test -s fuguang-lueying-559.apk
+          unzip -tq fuguang-lueying-559.apk
+          gh release create app-build-559 fuguang-lueying-559.apk \
+            --target 4ddbd1c6744644f765e29caf320bcca6511d93fc --prerelease \
+            --title "浮光掠影 App 第 559 版" \
+            --notes "「我的」里的壁纸入口改名为「Wallpaper 引擎」（入口、壁纸页标题、设置搜索）；其余同第 558 版。构建记录：https://github.com/dhhd1426-ops/Amor/actions/runs/44982523725"
