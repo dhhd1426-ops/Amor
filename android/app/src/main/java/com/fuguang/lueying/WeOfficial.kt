@@ -36,7 +36,7 @@ internal object WeOfficial {
     )
 
     private const val RUN = "we-official-run"
-    private const val OFF = "we-official-off"
+    private const val OFF = "we-official-off-554" // 换版本换文件名：旧版崩过的记录不算数
     private const val SCENELIB = "io.wallpaperengine.wrapper.SceneLib"
 
     /** 进程里只加载一次官方引擎；拿到的是官方 App 自己的 SceneLib 实例和它的方法 */
@@ -195,7 +195,7 @@ private class OfficialCtx(private val app: Context, official: Context) : Context
 
 /**
  * 官方引擎的渲染线程（第 553 版）：照官方 SceneWallpaperView 的顺序——
- * initLibrary → initContext → resizeScene → initScene(文件) → 每帧 updateScene，画在我们自己建的 EGL（ES 3）表面上，
+ * initLibrary → initContext → initScene(文件) → resizeScene → 每帧 updateScene，画在我们自己建的 EGL（ES 3）表面上，
  * 所以还是 TextureView，聊天时的虚化、磨砂照旧。
  * 每一步先写标记文件；原生代码崩了，下次打开这张改用自带渲染器（[WeOfficial.usable]）。
  * Java 这边抛错（反射找不到、引擎报错）就收尾后回调 [onFail]，由外面换自带渲染器。
@@ -243,11 +243,12 @@ internal class WeOfficialThread(
             val l = WeOfficial.load(app); lib = l
             at("建渲染环境（initContext）")
             id = (WeOfficial.call(l, "initContext", WeOfficial.ctx(app)) as Int)
+            // 顺序要紧：Main 在 initScene 里才建，resizeScene 直接用它（第 553 版先 resize，空指针崩了）
+            at("载入壁纸（initScene）")
+            WeOfficial.call(l, "initScene", id, mpkg(file).path)
             at("设画面大小（resizeScene ${w}×${h}）")
             var sw = w; var sh = h
             WeOfficial.call(l, "resizeScene", id, sw, sh)
-            at("载入壁纸（initScene）")
-            WeOfficial.call(l, "initScene", id, mpkg(file).path)
 
             var frames = 0; var ready = false
             val canvas = PointF()
