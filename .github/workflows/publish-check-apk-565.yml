@@ -1,0 +1,31 @@
+name: Publish check APK 565
+
+on:
+  push:
+    branches: [release/check-apk-565]
+
+permissions:
+  actions: read
+  contents: write
+
+jobs:
+  publish:
+    runs-on: ubuntu-latest
+    env:
+      GH_TOKEN: ${{ github.token }}
+      GH_REPO: ${{ github.repository }}
+    steps:
+      - name: Verify and publish the existing APK
+        shell: bash
+        run: |
+          set -euo pipefail
+          gh api "repos/$GH_REPO/actions/artifacts/14759397059/zip" > artifact.zip
+          echo "a1133156deed2e1a29d6a4bafccc212dddeb12e03b951958460f75b4b067c5cd  artifact.zip" | sha256sum -c
+          unzip -l artifact.zip
+          unzip -p artifact.zip fuguang-lueying-565.apk > fuguang-lueying-565.apk
+          test -s fuguang-lueying-565.apk
+          unzip -tq fuguang-lueying-565.apk
+          gh release create app-build-565 fuguang-lueying-565.apk \
+            --target 7f1e84ae1c05d2d9b5b77b494a8fb2077c0ced5e --prerelease \
+            --title "浮光掠影 App 第 565 版" \
+            --notes "GPT 控制台：对话中间和末尾的提示词留在原位；加缓存键。构建记录：https://github.com/dhhd1426-ops/Amor/actions/runs/45034600011"
