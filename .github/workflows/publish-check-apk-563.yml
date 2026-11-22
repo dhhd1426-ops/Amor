@@ -1,0 +1,31 @@
+name: Publish check APK 563
+
+on:
+  push:
+    branches: [release/check-apk-563]
+
+permissions:
+  actions: read
+  contents: write
+
+jobs:
+  publish:
+    runs-on: ubuntu-latest
+    env:
+      GH_TOKEN: ${{ github.token }}
+      GH_REPO: ${{ github.repository }}
+    steps:
+      - name: Verify and publish the existing APK
+        shell: bash
+        run: |
+          set -euo pipefail
+          gh api "repos/$GH_REPO/actions/artifacts/14753334121/zip" > artifact.zip
+          echo "9abe72d5975d0373be9ec5eb16cab09cfb3ee30c6ab62a94f4f2879cfb5f1cee  artifact.zip" | sha256sum -c
+          unzip -l artifact.zip
+          unzip -p artifact.zip fuguang-lueying-563.apk > fuguang-lueying-563.apk
+          test -s fuguang-lueying-563.apk
+          unzip -tq fuguang-lueying-563.apk
+          gh release create app-build-563 fuguang-lueying-563.apk \
+            --target b3e92f617dd4773d61593eecd14827f7ca64c6f8 --prerelease \
+            --title "浮光掠影 App 第 563 版" \
+            --notes "「我的 › 功能」加 GPT 控制台：用 ChatGPT 账号的套餐额度聊天（官方 Sign in with ChatGPT）。第一版，真机还没跑通过，出错看控制台里的诊断框。构建记录：https://github.com/dhhd1426-ops/Amor/actions/runs/45020243372"
