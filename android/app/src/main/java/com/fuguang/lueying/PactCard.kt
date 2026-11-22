@@ -62,6 +62,7 @@ object Keep {
     /** 回到 App 时加一：卡片重新读一遍系统状态。 */
     var ver by androidx.compose.runtime.mutableIntStateOf(0)
     private const val VENDOR = "keep-vendor"
+    private const val VENDOR2 = "keep-vendor2"
 
     class Step(val key: String, val title: String, val note: String, val go: (Context) -> Unit)
 
@@ -90,6 +91,12 @@ object Keep {
             Prefs(c).putString(VENDOR, "1")
             open(c, Intent().setComponent(ComponentName("com.miui.securitycenter", "com.miui.permcenter.autostart.AutoStartManagementActivity")), details(c))
         }
+        // 小米：照 FlClash，光进电池白名单不够，省电策略要选「无限制」，否则 PowerKeeper 照样冻它
+        if (mi && Prefs(ctx).string(VENDOR2) != "1") out += Step("vendor2", "省电策略选「无限制」", "省电策略") { c ->
+            Prefs(c).putString(VENDOR2, "1")
+            open(c, Intent().setComponent(ComponentName("com.miui.powerkeeper", "com.miui.powerkeeper.ui.HiddenAppsConfigActivity"))
+                .putExtra("package_name", c.packageName).putExtra("package_label", c.applicationInfo.loadLabel(c.packageManager).toString()), details(c))
+        }
         if (!done && samsung) out += Step("vendor", "别让它进休眠", "电池 · 永不休眠的应用") { c ->
             Prefs(c).putString(VENDOR, "1")
             open(c, Intent("com.samsung.android.sm.ACTION_BATTERY"), details(c))
@@ -99,7 +106,7 @@ object Keep {
 
     /** 可选的：常驻通知藏起来（关掉「她在后台等着」那一类）。关掉了、或者点过，就不再列。 */
     fun extra(ctx: Context): List<Step> {
-        if (Pacts.all.isEmpty() || PactKeeper.hidden(ctx) || Prefs(ctx).string(HIDE) == "1") return emptyList()
+        if (!PactKeeper.wanted(ctx) || PactKeeper.hidden(ctx) || Prefs(ctx).string(HIDE) == "1") return emptyList()
         return listOf(Step("hide", "把常驻通知藏起来", "可选 · 关掉这一类") { c ->
             Prefs(c).putString(HIDE, "1")
             open(c, Intent(Settings.ACTION_CHANNEL_NOTIFICATION_SETTINGS).putExtra(Settings.EXTRA_APP_PACKAGE, c.packageName).putExtra(Settings.EXTRA_CHANNEL_ID, PactKeeper.CH),
@@ -136,7 +143,7 @@ internal fun KeepCard() {
     val ctx = LocalContext.current
     var tick by remember { mutableIntStateOf(0) }
     val steps = remember(Keep.ver, tick, Pacts.all.size) { Keep.needs(ctx) + Keep.extra(ctx) }
-    if (steps.isEmpty()) return
+    if (steps.isEmpty() || !PactKeeper.wanted(ctx)) return
     val rise = remember { Animatable(0f) }
     LaunchedEffect(Unit) { rise.animateTo(1f, tween(320, easing = Curves.decel)) }
     Column(

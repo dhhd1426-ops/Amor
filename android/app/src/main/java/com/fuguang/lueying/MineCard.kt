@@ -74,6 +74,7 @@ object MineCard : FloatCard()
 
 private val person = Ic("M5.5 19.5c.9-3.4 3.4-5.3 6.5-5.3s5.6 1.9 6.5 5.3", circles = listOf(floatArrayOf(12f, 8.5f, 3.4f)))
 private val chevron = Ic("M9.5 6l6 6-6 6")
+private val taskIc = Ic("M12 20a7.5 7.5 0 1 0 0-15 7.5 7.5 0 0 0 0 15ZM12 8.5v4l2.6 1.8M9.5 2.5h5")
 private val tune = Ic("M6 4v5M6 14v6M12 4v2M12 11v9M18 4v9M18 18v2", circles = listOf(floatArrayOf(6f, 11.5f, 2.3f), floatArrayOf(12f, 8.5f, 2.3f), floatArrayOf(18f, 15.5f, 2.3f)))
 private val warm: Color get() = Skin.accent
 private val warmInk: Color get() = Skin.onAccent
@@ -126,6 +127,7 @@ fun MineCardLayer(store: AssistantStore, nav: MineNav) {
             "skills" -> SkillsPage({ nav.up("features") }) { nav.screen = "skills/$it" }
             "search" -> SearchPage({ nav.up("features") }) { nav.screen = "search/$it" }
             "worldbook" -> WorldBookPage(screen, nav)
+            "tasks" -> TasksPage { nav.up("mine") }
             else -> if (screen.startsWith("worldbook/")) WorldBookPage(screen, nav)
             else if (screen.startsWith("skills/")) SkillDetailPage(screen.removePrefix("skills/")) { nav.up("skills") }
             else if (screen.startsWith("search/")) SearchSourcePage(screen.removePrefix("search/")) { nav.up("search") }
@@ -182,6 +184,14 @@ private fun MineCardList(store: AssistantStore, t: Float, onGo: (String) -> Unit
     Spacer(Modifier.height(6.dp))
     MineRow(2, t, "世界书", "", { onGo("worldbook") }, glyph = { SvgIcon(KI.worldBook, warm, 19.dp, stroke = 1.6f) }) {
         Txt(if (WorldBooks.books.isEmpty()) "" else "${WorldBooks.books.size} 本", Page.muted, 13.5.sp, maxLines = 1)
+        Spacer(Modifier.width(4.dp))
+        SvgIcon(chevron, Page.muted.copy(alpha = .6f), 15.dp, stroke = 1.8f)
+    }
+    Spacer(Modifier.height(6.dp))
+    // 定时任务：常驻后台开关 + 到点她来找你的那些（约定也在里面）
+    MineRow(2, t, "定时任务", "", { onGo("tasks") }, glyph = { SvgIcon(taskIc, warm, 19.dp, stroke = 1.6f) }) {
+        val on = Pacts.all.count { it.on }
+        Txt(if (on == 0) "" else "$on 个", Page.muted, 13.5.sp, maxLines = 1)
         Spacer(Modifier.width(4.dp))
         SvgIcon(chevron, Page.muted.copy(alpha = .6f), 15.dp, stroke = 1.8f)
     }

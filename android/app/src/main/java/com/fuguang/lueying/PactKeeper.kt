@@ -35,7 +35,7 @@ class PactKeeper : Service() {
 
     override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
         PactRun.boot(this)
-        if (Pacts.all.isEmpty()) { stopSelf(); return START_NOT_STICKY }
+        if (!wanted(this)) { stopSelf(); return START_NOT_STICKY }
         val ok = runCatching {
             val n = note(this)
             if (Build.VERSION.SDK_INT >= 34) startForeground(ID, n, ServiceInfo.FOREGROUND_SERVICE_TYPE_SPECIAL_USE)
@@ -101,9 +101,15 @@ class PactKeeper : Service() {
         }
 
         /** 约定变了：有就开着（已开着就换通知上的字），没有就关掉。 */
+        /**
+         * 要不要常驻（第 562 版起能自己开关，「我的 › 定时任务」）：prefs `keep-on` 是 "1" 就一直在，"0" 就不在；
+         * 没设过的照以前：有约定才在。
+         */
+        fun wanted(ctx: Context): Boolean = when (Prefs(ctx).string("keep-on")) { "1" -> true; "0" -> false; else -> Pacts.all.isNotEmpty() }
+
         fun sync(ctx: Context) {
             val k = live
-            if (Pacts.all.isEmpty()) { k?.stopSelf(); return }
+            if (!wanted(ctx)) { k?.stopSelf(); return }
             if (k != null) runCatching { NotificationManagerCompat.from(ctx).notify(ID, note(ctx)) }
             else runCatching { ctx.startForegroundService(Intent(ctx, PactKeeper::class.java)) }
         }

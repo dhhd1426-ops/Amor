@@ -9,7 +9,9 @@ import android.content.Intent
 import android.content.pm.ServiceInfo
 import android.os.Build
 import android.os.IBinder
+import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateListOf
+import androidx.compose.runtime.setValue
 import androidx.core.app.NotificationCompat
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
@@ -38,6 +40,11 @@ data class Pact(
     val next: Long = 0L, val missed: Long = 0L,
     /** 常驻通知里那句：她记约定时自己写的，昵称开头、她的口吻（第 354 版）。 */
     val line: String = "",
+    /**
+     * 定时任务页手动加的（第 562 版）：every 每隔多少分钟来一次（0 = 不是这种）；from / to 只在这段时间里来（HH:mm，空 = 全天）；
+     * raw 原话发（what 原样当成她的话发出来，不问模型、不花钱）；on 开着没有（关了不定闹钟，但留在列表里）。
+     */
+    val every: Int = 0, val from: String = "", val to: String = "", val raw: Boolean = false, val on: Boolean = true,
 )
 
 object Pacts {
@@ -63,6 +70,7 @@ object Pacts {
                 all += Pact(
                     o.getString("id"), o.optString("w"), o.optString("t"), o.optString("x"), o.optString("h"),
                     if (ds == null) emptyList() else List(ds.length()) { ds.optInt(it) }, o.optString("dt"), o.optInt("i"), o.optLong("n"), o.optLong("m"), o.optString("l"),
+                    every = o.optInt("e"), from = o.optString("f"), to = o.optString("o"), raw = o.optBoolean("r"), on = o.optBoolean("on", true),
                 )
             }
         }
@@ -73,7 +81,8 @@ object Pacts {
         val a = JSONArray()
         all.forEach { p ->
             a.put(JSONObject().put("id", p.id).put("w", p.who).put("t", p.title).put("x", p.what).put("h", p.time).put("d", JSONArray(p.days))
-                .put("dt", p.date).put("i", p.idle).put("n", p.next).put("m", p.missed).put("l", p.line))
+                .put("dt", p.date).put("i", p.idle).put("n", p.next).put("m", p.missed).put("l", p.line)
+                .put("e", p.every).put("f", p.from).put("o", p.to).put("r", p.raw).put("on", p.on))
         }
         prefs?.putString(KEY, a.toString())
         app?.let { PactKeeper.sync(it) }
@@ -94,6 +103,17 @@ object Pacts {
 
     /** 从 from 之后的下一次；0 = 不会再有了（一次性的已经过了）。 */
     fun nextOf(p: Pact, from: Long = System.currentTimeMillis()): Long {
+        if (p.every > 0) {
+            var t = at(from + p.every * 60_000L)
+            val a = hm(p.from); val b = hm(p.to)
+            if (a != null && b != null && a != b) {
+                // 只在 from–to 这段里来；这段可以跨过半夜（22:00–06:00）
+                val now = t.toLocalTime()
+                val inside = if (a.isBefore(b)) !now.isBefore(a) && !now.isAfter(b) else !now.isBefore(a) || !now.isAfter(b)
+                if (!inside) t = if (now.isBefore(a)) t.toLocalDate().atTime(a) else t.toLocalDate().plusDays(1).atTime(a)
+            }
+            return ms(t)
+        }
         if (p.idle > 0) {
             val last = Memory.get(p.who)?.lastAt?.takeIf { it > 0 } ?: from
             var t = at(maxOf(last + p.idle * 86_400_000L, from + 60_000L))
@@ -119,6 +139,7 @@ object Pacts {
     private val wk = listOf("", "一", "二", "三", "四", "五", "六", "日")
     /** 卡片上那一行：「每天 08:00」「工作日 08:00」「3 天没聊」「11月2日 09:00」。 */
     fun rule(p: Pact): String = when {
+        p.every > 0 -> "每 " + (if (p.every % 60 == 0) "${p.every / 60} 小时" else "${p.every} 分钟") + (if (hm(p.from) != null && hm(p.to) != null) " · ${p.from}–${p.to}" else "")
         p.idle > 0 -> "${p.idle} 天没聊"
         p.date.isNotBlank() -> runCatching { LocalDate.parse(p.date).let { "${it.monthValue}月${it.dayOfMonth}日 " } }.getOrDefault("") + p.time
         p.days.isEmpty() || p.days.toSet() == (1..7).toSet() -> "每天 ${p.time}"
@@ -222,7 +243,34 @@ object Pacts {
         ctx, ("pact$id").hashCode(), Intent(ctx, PactAlarm::class.java).putExtra("id", id), PendingIntent.FLAG_IMMUTABLE or PendingIntent.FLAG_UPDATE_CURRENT,
     )
 
+    /** 定时任务页加、改、开关一条：算好下一次，定闹钟（关着的不定）。 */
+    fun set(ctx: Context, p: Pact) {
+        val n = p.copy(next = if (p.on) nextOf(p) else 0L)
+        put(n)
+        if (n.on) schedule(ctx, n) else cancel(ctx, n.id)
+    }
+    fun newId(): String = System.currentTimeMillis().toString(36) + (10..99).random()
+
+    /** 「现在跑一次」：不管开没开、到没到点，马上来一次；不动原来定好的下一次。 */
+    private val forced = java.util.Collections.synchronizedSet(HashSet<String>())
+    fun runNow(ctx: Context, id: String) { forced.add(id); fire(ctx, id) }
+
+    /* ---------- 诊断：最近十几次到点都发生了什么（定时任务页底下那个框） ---------- */
+    private const val LOG = "pact-log"
+    var logText by androidx.compose.runtime.mutableStateOf("")
+        private set
+    fun log(msg: String) {
+        val t = at(System.currentTimeMillis())
+        val line = "%02d-%02d %02d:%02d:%02d %s".format(t.monthValue, t.dayOfMonth, t.hour, t.minute, t.second, msg)
+        val p = prefs ?: return
+        val all = (listOf(line) + (p.string(LOG)?.lines().orEmpty())).filter { it.isNotBlank() }.take(14).joinToString("\n")
+        p.putString(LOG, all)
+        runCatching { logText = all }
+    }
+    fun loadLog() { logText = prefs?.string(LOG).orEmpty() }
+
     fun schedule(ctx: Context, p: Pact) {
+        if (!p.on) { cancel(ctx, p.id); return }
         if (p.next <= 0) return
         runCatching {
             val am = ctx.getSystemService(AlarmManager::class.java) ?: return
@@ -237,10 +285,11 @@ object Pacts {
     fun catchUp(ctx: Context, direct: Boolean = true) {
         val now = System.currentTimeMillis()
         all.toList().forEach { p ->
+            if (!p.on) return@forEach
             if (p.next in 1..now) {
                 // 开机时不能直接开前台服务（安卓 15 起）：定一个半分钟后的闹钟去叫
                 if (now - p.next < LATE) { if (direct) fire(ctx, p.id) else schedule(ctx, p.copy(next = now + 30_000L)); return@forEach }
-                val n = p.copy(missed = if (p.idle > 0) p.missed else p.next, next = nextOf(p, now))
+                val n = p.copy(missed = if (p.idle > 0 || p.every > 0) p.missed else p.next, next = nextOf(p, now))
                 if (n.next == 0L && n.date.isNotBlank()) { all.remove(p); save(); return@forEach }
                 put(n); schedule(ctx, n)
             } else schedule(ctx, p)
@@ -251,7 +300,7 @@ object Pacts {
     fun fire(ctx: Context, id: String) {
         if (PactKeeper.run(id)) return
         runCatching { ctx.startForegroundService(Intent(ctx, PactRun::class.java).putExtra("id", id)) }
-            .onFailure { android.util.Log.w("Pacts", "约定没叫醒：" + it.message); get(id)?.let { p -> fallback(ctx, p) } }
+            .onFailure { android.util.Log.w("Pacts", "约定没叫醒：" + it.message); log("没叫醒 ${get(id)?.title.orEmpty()}：前台服务开不了 ${it.javaClass.simpleName} ${it.message.orEmpty()}"); get(id)?.let { p -> fallback(ctx, p) } }
     }
 
     /** 保底的一句：「小屿，喝水的时间到了。」 */
@@ -267,21 +316,30 @@ object Pacts {
         val now = System.currentTimeMillis()
         val persona = Memory.get(p0.who)
         // 下一次先定好：这次想不出来也不影响以后
+        val force = forced.remove(id)
+        if (!p0.on && !force) return
         fun moveOn(missed: Long = 0L) {
             val cur = get(id) ?: return
+            if (force || !cur.on) return      // 手动跑的一次不动原来的排期；关着的不排
             val n = cur.copy(next = nextOf(cur, now + 60_000L), missed = if (missed > 0) missed else cur.missed)
             if (n.next == 0L) { all.remove(cur); save(); cancel(ctx, id) } else { put(n); schedule(ctx, n) }
         }
         if (persona == null) { all.removeAll { it.id == id }; save(); return }
-        if (p0.idle > 0 && persona.lastAt > 0 && persona.lastAt + p0.idle * 86_400_000L > now) { moveOn(); return }   // 这几天聊过了
-        if (p0.next > 0 && now - p0.next > LATE) { moveOn(missed = if (p0.idle > 0) 0L else p0.next); return }
+        if (!force && p0.idle > 0 && persona.lastAt > 0 && persona.lastAt + p0.idle * 86_400_000L > now) { moveOn(); return }   // 这几天聊过了
+        if (!force && p0.next > 0 && now - p0.next > LATE) { log("错过 ${p0.title}：晚了 ${(now - p0.next) / 60_000} 分钟才醒，不补"); moveOn(missed = if (p0.idle > 0 || p0.every > 0) 0L else p0.next); return }
         moveOn()
         val prefs = prefs ?: Prefs(ctx)
-        val store = AssistantStore(prefs)
-        val pv = provider(store.activeProvider); val c = store.config(pv.id)
-        if (!c.configured || store.activeModel.isBlank()) return
         val history = Chats.current?.history ?: ConvStore(prefs)
         val conv = history.of(persona.id).maxByOrNull { it.updated }
+        // 原话发：what 原样当成她的话，不问模型
+        if (p0.raw) {
+            deliver(history, conv, ChatMsg("assistant", p0.what, pact = p0.title), persona, p0.title)
+            log("发了 ${p0.title}（原话）")
+            return
+        }
+        val store = AssistantStore(prefs)
+        val pv = provider(store.activeProvider); val c = store.config(pv.id)
+        if (!c.configured || store.activeModel.isBlank()) { log("没发 ${p0.title}：当前模型没配好（${pv.id} / ${store.activeModel.ifBlank { "没选模型" }}）"); return }
         val past = conv?.msgs?.takeLast(16).orEmpty().filter { it.text.isNotBlank() }
         val t = at(now)
         val hhmm = "%02d:%02d".format(t.hour, t.minute)
@@ -308,19 +366,25 @@ object Pacts {
                     ),
                 ) { text += it }
             }
-        }.onFailure { android.util.Log.w("Pacts", "约定「${p0.title}」没想出来：" + it.message) }
+        }.onFailure { android.util.Log.w("Pacts", "约定「${p0.title}」没想出来：" + it.message); log("没想出来 ${p0.title}：${it.javaClass.simpleName} ${it.message.orEmpty()}") }
         text = ToolText.clean(text).trim()
         if (text.isEmpty()) {
             // 保底：这次想不出话（没网、模型出错），先用她的名义说一句；下次聊天她再接着说
             fallback(ctx, p0)
+            if (text.isEmpty()) log("保底 ${p0.title}：她这次没写出话，先发了一句固定的")
             get(id)?.let { put(it.copy(missed = now)) }
             return
         }
-        val m = ChatMsg("assistant", text, pid = pv.id, pact = p0.title)
+        deliver(history, conv, ChatMsg("assistant", text, pid = pv.id, pact = p0.title), persona, p0.title)
+        log("发了 ${p0.title}（${store.activeModel}，${text.length} 字）")
+    }
+
+    /** 接在这位助理最近那段聊天后面（正开着就直接落进去），再发通知。 */
+    private suspend fun deliver(history: ConvStore, conv: Conv?, m: ChatMsg, persona: Persona, title: String) {
         kotlinx.coroutines.withContext(Dispatchers.Main) {
             val cs = Chats.current
             val cid = if (cs != null && cs.convId != null && cs.convId == conv?.id && !cs.busy) cs.arrive(m)
-            else history.append(conv?.id, m, persona.id, p0.title)
+            else history.append(conv?.id, m, persona.id, title)
             val seen = cs != null && Notify.foreground && cs.convId == cid && cs.onScreen
             Notify.replied(cid, history, null, Notify.preview(m), seen)
         }
