@@ -1,0 +1,31 @@
+name: Publish check APK 562
+
+on:
+  push:
+    branches: [release/check-apk-562]
+
+permissions:
+  actions: read
+  contents: write
+
+jobs:
+  publish:
+    runs-on: ubuntu-latest
+    env:
+      GH_TOKEN: ${{ github.token }}
+      GH_REPO: ${{ github.repository }}
+    steps:
+      - name: Verify and publish the existing APK
+        shell: bash
+        run: |
+          set -euo pipefail
+          gh api "repos/$GH_REPO/actions/artifacts/14753310395/zip" > artifact.zip
+          echo "5e06896f0997b2bc38c60095298aaf0911b0e1d7732e50a0f19d0fb48970803a  artifact.zip" | sha256sum -c
+          unzip -l artifact.zip
+          unzip -p artifact.zip fuguang-lueying-562.apk > fuguang-lueying-562.apk
+          test -s fuguang-lueying-562.apk
+          unzip -tq fuguang-lueying-562.apk
+          gh release create app-build-562 fuguang-lueying-562.apk \
+            --target de7c0b0da37d37b161beee53fabe423c13d919c4 --prerelease \
+            --title "浮光掠影 App 第 562 版" \
+            --notes "「我的」加定时任务和常驻后台开关；「全部对话」长按多选删除；记忆页收束成弧、可切回平铺、加精准和相近的搜索；加星时星先落下。构建记录：https://github.com/dhhd1426-ops/Amor/actions/runs/45018331387"
