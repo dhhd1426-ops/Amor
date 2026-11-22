@@ -746,6 +746,7 @@ object ChatApi {
         val gpt = p.id == Gpt.ID
         if (!gpt && c.key.isBlank()) throw IllegalStateException("还没填 ${c.name} 的 API Key")
         val bearer = if (gpt) Gpt.token() else c.key.trim()
+        val gkey = if (gpt) Gpt.cacheKey(model) else ""
         val gw = if (gpt) GptWire.Events() else null
         val anthropic = p.kind == "anthropic"
         val url = if (anthropic) trim(c.base) + "/messages"
@@ -814,7 +815,7 @@ object ChatApi {
             // 助理的自定义 Body 最后合进去，能盖掉上面写的（Kelivo CustomRequestMerger）
             ax?.let { AssistantExt.mergeBody(it, body) }
             ModelFit.strip(p.id, model, body)
-            conn.outputStream.use { it.write((if (gpt) Gpt.sent(GptWire.request(body)) else body).toString().toByteArray()) }
+            conn.outputStream.use { it.write((if (gpt) Gpt.sent(GptWire.request(body, gkey)) else body).toString().toByteArray()) }
 
             val code = conn.responseCode
             accepted = code in 200..299

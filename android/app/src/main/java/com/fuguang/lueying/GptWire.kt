@@ -18,15 +18,23 @@ internal object GptWire {
     /** 工具分组的名字；模型回的调用里 namespace 就是它。 */
     const val NS = "amor"
 
-    fun request(chat: JSONObject): JSONObject {
+    fun request(chat: JSONObject, cacheKey: String = ""): JSONObject {
         val out = JSONObject().put("model", chat.optString("model"))
         val msgs = chat.optJSONArray("messages") ?: JSONArray()
         val sys = StringBuilder()
         val input = JSONArray()
+        // 开头的 system 进 instructions；夹在对话中间、放在末尾的 system（预设对话、世界书按深度插的条目、末尾追加的要求）留在原位，
+        // 换成 developer 消息。第 564 版把它们全收到最上面，位置没了，「越靠后越管用」的那些要求就不灵了
+        var talked = false
         for (i in 0 until msgs.length()) {
             val m = msgs.optJSONObject(i) ?: continue
-            when (m.optString("role")) {
-                "system", "developer" -> text(m.opt("content")).takeIf { it.isNotBlank() }?.let { if (sys.isNotEmpty()) sys.append("\n\n"); sys.append(it) }
+            val role = m.optString("role")
+            if (role != "system" && role != "developer") talked = true
+            when (role) {
+                "system", "developer" -> text(m.opt("content")).takeIf { it.isNotBlank() }?.let {
+                    if (!talked) { if (sys.isNotEmpty()) sys.append("\n\n"); sys.append(it) }
+                    else input.put(JSONObject().put("role", "developer").put("content", JSONArray().put(JSONObject().put("type", "input_text").put("text", it))))
+                }
                 "user" -> input.put(JSONObject().put("role", "user").put("content", userParts(m.opt("content"))))
                 "assistant" -> {
                     text(m.opt("content")).takeIf { it.isNotBlank() }?.let {
@@ -61,6 +69,8 @@ internal object GptWire {
         }
         // 思考档：Chat Completions 写 reasoning_effort，这边写 reasoning.effort；要一份思考摘要才看得见她在想什么
         chat.optString("reasoning_effort").takeIf { it.isNotBlank() }?.let { out.put("reasoning", JSONObject().put("effort", it).put("summary", "auto")) }
+        // 缓存键：同一个键的请求尽量落到同一处，前面没变的那一大段（工具、说明）才用得上缓存，不用每句从头读
+        if (cacheKey.isNotBlank()) out.put("prompt_cache_key", cacheKey)
         return out.put("store", false).put("stream", true)
     }
 
@@ -73,7 +83,8 @@ internal object GptWire {
         val names = fs?.let { a -> (0 until a.length()).mapNotNull { a.optJSONObject(it)?.optString("name") } }.orEmpty()
         return "说明 ${ins.length} 字（记忆那段${if ("一直记着" in ins) "在" else "不在"}里面）· 往来 ${input.length()} 条 " + kinds.entries.joinToString(" ") { "${it.key}×${it.value}" } +
             "\n工具 ${names.size} 个" + (if (names.isNotEmpty()) "：" + names.joinToString(" ") else "") +
-            (wire.optJSONObject("reasoning")?.let { "\n思考档 " + it.optString("effort") } ?: "\n思考档 没写")
+            (wire.optJSONObject("reasoning")?.let { "\n思考档 " + it.optString("effort") } ?: "\n思考档 没写") +
+            " · 缓存键 " + (if (wire.has("prompt_cache_key")) "带了" else "没带")
     }
 
     /** 一次不带工具的问答（测试模型、整理记忆、看图）。content：一句话，或 Chat Completions 的内容块数组。 */

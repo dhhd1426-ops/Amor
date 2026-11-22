@@ -106,6 +106,8 @@ object Gpt {
     @Volatile private var lastChat = ""
     @Volatile private var lastTiming = ""
     @Volatile private var lastSent = ""
+    /** 这条通道收不收缓存键：""＝还没试过，"1"＝收，"0"＝不收（文档没写，第一次聊天前真发一句试出来）。 */
+    @Volatile private var cacheKeyOk = ""
     private var ver = "?"
 
     @Synchronized
@@ -118,7 +120,7 @@ object Gpt {
         runCatching {
             val o = JSONObject(s.getString("state", null) ?: "{}")
             hostId = o.optString("host"); clientId = o.optString("client"); sub = o.optString("sub")
-            access = o.optString("access"); refresh = o.optString("refresh"); expiresAt = o.optLong("exp"); scopes = o.optString("scopes"); prev = o.optString("prev")
+            access = o.optString("access"); refresh = o.optString("refresh"); expiresAt = o.optLong("exp"); scopes = o.optString("scopes"); prev = o.optString("prev"); cacheKeyOk = o.optString("ck")
             on = o.optBoolean("on"); who = o.optString("name"); mail = o.optString("email")
             signedIn = refresh.isNotEmpty() && clientId.isNotEmpty()
             models.clear()
@@ -130,7 +132,7 @@ object Gpt {
     @Synchronized
     private fun save() {
         val o = JSONObject().put("host", hostId).put("client", clientId).put("sub", sub).put("access", access).put("refresh", refresh).put("exp", expiresAt)
-            .put("scopes", scopes).put("prev", prev).put("on", on).put("name", who).put("email", mail)
+            .put("scopes", scopes).put("prev", prev).put("ck", cacheKeyOk).put("on", on).put("name", who).put("email", mail)
             .put("models", JSONArray(models.toList().map { JSONObject().put("s", it.slug).put("n", it.name) }))
         // commit：刷新令牌换下来的那一把已经作废，新的没落盘就丢了登录
         sp?.edit()?.putString("state", o.toString())?.commit()
@@ -421,7 +423,28 @@ object Gpt {
     }
 
     /** 一次不带工具的问答，返回正文（整理记忆、看图、给思考分步也走这里）。 */
-    suspend fun ask(model: String, system: String, content: Any): String = withContext(Dispatchers.IO) {
+    suspend fun ask(model: String, system: String, content: Any): String = run(GptWire.ask(model, system, content), model)
+
+    /** 被服务器明着拒了（不是网络问题）。 */
+    private class Refused(val status: Int, message: String) : IllegalStateException(message)
+
+    /**
+     * 聊天要带的缓存键；这条通道不收就返回空的。没试过时先真发一句带键的短话：通了以后都带，被 400 拒了以后都不带，
+     * 别的情况（断网、额度到头）这次先不带，下次再试。
+     */
+    internal suspend fun cacheKey(model: String): String {
+        if (cacheKeyOk == "0") return ""
+        val key = "amor-" + hostId.takeLast(12)
+        if (cacheKeyOk == "1") return key
+        val r = runCatching { run(GptWire.ask(model, "", "hi").put("prompt_cache_key", key), model) }
+        val e = r.exceptionOrNull()
+        if (e is CancellationException) throw e
+        cacheKeyOk = when { r.isSuccess -> "1"; e is Refused && e.status == 400 -> "0"; else -> return "" }
+        save()
+        return if (cacheKeyOk == "1") key else ""
+    }
+
+    private suspend fun run(wire: JSONObject, model: String): String = withContext(Dispatchers.IO) {
         val bearer = token()
         val conn = URL("$BASE/responses").openConnection() as HttpURLConnection
         try {
@@ -429,10 +452,10 @@ object Gpt {
             conn.setRequestProperty("Authorization", "Bearer $bearer")
             conn.setRequestProperty("Content-Type", "application/json")
             conn.setRequestProperty("Accept", "text/event-stream")
-            conn.outputStream.use { it.write(GptWire.ask(model, system, content).toString().toByteArray()) }
+            conn.outputStream.use { it.write(wire.toString().toByteArray()) }
             val code = conn.responseCode
             seen(conn)
-            if (code !in 200..299) throw IllegalStateException(chatError(code, conn.errorStream?.bufferedReader(Charsets.UTF_8)?.use { it.readText() }.orEmpty(), conn, model))
+            if (code !in 200..299) throw Refused(code, chatError(code, conn.errorStream?.bufferedReader(Charsets.UTF_8)?.use { it.readText() }.orEmpty(), conn, model))
             val ev = GptWire.Events()
             val text = StringBuilder()
             conn.inputStream.bufferedReader(Charsets.UTF_8).use { r ->
@@ -529,7 +552,7 @@ object Gpt {
                 "正在用  ${using(store).ifEmpty { "不是它（${store.activeProvider} ${store.activeModel}）" }}",
                 "访问令牌  $left",
                 "scope  $scopes",
-                "注册  ${if (clientId.isEmpty()) "还没有" else "有"} · host ${hostId.takeLast(8)}",
+                "注册  ${if (clientId.isEmpty()) "还没有" else "有"} · host ${hostId.takeLast(8)} · 缓存键 ${when (cacheKeyOk) { "1" -> "收"; "0" -> "不收"; else -> "还没试" }}",
                 "—— 最近一次回包的头 ——",
                 lastHeaders.ifEmpty { "（还没发过请求）" },
                 "—— 最近一次聊天发出去的 ——",
