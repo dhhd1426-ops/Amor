@@ -1,0 +1,30 @@
+name: Publish check APK 566
+
+on:
+  push:
+    branches: [release/check-apk-566]
+
+permissions:
+  actions: read
+  contents: write
+
+jobs:
+  publish:
+    runs-on: ubuntu-latest
+    env:
+      GH_TOKEN: ${{ github.token }}
+      GH_REPO: ${{ github.repository }}
+    steps:
+      - name: Verify and publish the existing APK
+        shell: bash
+        run: |
+          set -euo pipefail
+          gh api "repos/$GH_REPO/actions/artifacts/15174797999/zip" > artifact.zip
+          echo "ee88862ea04c5053e3a1d3d3c151fbb013a106a6f11f973678bd42168f3cc72e  artifact.zip" | sha256sum -c
+          unzip -p artifact.zip fuguang-lueying-566.apk > fuguang-lueying-566.apk
+          test -s fuguang-lueying-566.apk
+          unzip -tq fuguang-lueying-566.apk
+          gh release create app-build-566 fuguang-lueying-566.apk \
+            --target c689d26072e6e4da000448f3636c060d05a18d4c --prerelease \
+            --title "浮光掠影 App 第 566 版" \
+            --notes "鲸鱼娘桌宠：Amor 不在前台时浮在所有界面上，可拖动、贴边收起，点她有反应，说话只有一个气泡。构建记录：https://github.com/dhhd1426-ops/Amor/actions/runs/45945308716"
