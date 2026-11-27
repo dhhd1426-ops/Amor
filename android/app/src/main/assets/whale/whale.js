@@ -248,7 +248,8 @@ function avoidStep(dt){if(!model)return;const h=app.renderer.screen.height,w=app
   const s0=Math.min(w/im.width,h/im.height)*S.zoom,H0=im.height*s0,py=h/2+h*S.dy,bot=py+H0/2,fT=roomT*h,fB=roomB*h-6;
   let ws=1,wy=0,wh=0;
   /* 被输入框或键盘盖住：放得下 55% 就缩小站上去（A），放不下就沉下去躲开（B）。拖着、编辑位置、换装时不管 */
-  if(!editing&&!grab&&!dressing&&bot>fB+4){const fit=Math.min(1,(fB-fT)/H0);if(fit>=.55){ws=fit;wy=fB-H0*fit/2-py;}else wh=1;}
+  /* 能站的那块还有屏幕四成半高（键盘没起来）时，再小也缩小站着，不沉：宽屏、近方形的屏（小米横着、平板）上她按高度算会偏大，以前一放不下 55% 就整个沉掉，主页上看不见她，标志却按「她在」缩小上移了（第 567 版） */
+  if(!editing&&!grab&&!dressing&&bot>fB+4){const fit=Math.min(1,(fB-fT)/H0);if(fit>=.55||fB-fT>=h*.45){ws=fit;wy=fB-H0*fit/2-py;}else wh=1;}
   avWant={s:ws,y:wy,hide:wh};
   const k=1-Math.exp(-dt*22);avS+=(ws-avS)*k;avY+=(wy-avY)*k;
   hideV+=(wh-hideV)*(1-Math.exp(-dt*(wh?20:10)));

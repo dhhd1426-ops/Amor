@@ -17,6 +17,11 @@ import androidx.core.view.WindowInsetsControllerCompat
 
 class MainActivity : ComponentActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {
+        // 新打开（不是转屏、折叠这种重建）就从聊天开始。这些开关放在全局 object 里，
+        // 进程被常驻服务（桌宠、定时任务）留着时，上次划掉前开着的「我的」等卡片会原样又开出来（第 566 版）
+        if (savedInstanceState == null) {
+            MineCard.open = false; MemoryCard.open = false; Projects.open = false; ChatTools.open = false; Walls.clear = false
+        }
         // 状态栏、导航栏透明，背景画面铺到屏幕边缘
         enableEdgeToEdge(
             statusBarStyle = SystemBarStyle.dark(Color.TRANSPARENT),
