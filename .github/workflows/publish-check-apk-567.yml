@@ -1,0 +1,30 @@
+name: Publish check APK 567
+
+on:
+  push:
+    branches: [release/check-apk-567]
+
+permissions:
+  actions: read
+  contents: write
+
+jobs:
+  publish:
+    runs-on: ubuntu-latest
+    env:
+      GH_TOKEN: ${{ github.token }}
+      GH_REPO: ${{ github.repository }}
+    steps:
+      - name: Verify and publish the existing APK
+        shell: bash
+        run: |
+          set -euo pipefail
+          gh api "repos/$GH_REPO/actions/artifacts/15204169131/zip" > artifact.zip
+          echo "a70e240919f2d005c52e364611c0b6ef75ab5ad81cb7ae081f4e36ebc2573b75  artifact.zip" | sha256sum -c
+          unzip -p artifact.zip fuguang-lueying-567.apk > fuguang-lueying-567.apk
+          test -s fuguang-lueying-567.apk
+          unzip -tq fuguang-lueying-567.apk
+          gh release create app-build-567 fuguang-lueying-567.apk \
+            --target d3652f89ec2feca5bb01b5d58440e71e2e5177d3 --prerelease \
+            --title "浮光掠影 App 第 567 版" \
+            --notes "修：划掉再打开直接进「我的」；小米宽屏上鲸鱼娘沉掉、标志偏小偏上。构建记录：https://github.com/dhhd1426-ops/Amor/actions/runs/46011915036"
