@@ -43,12 +43,14 @@ class PactKeeper : Service() {
         }.isSuccess
         if (!ok) { stopSelf(); return START_NOT_STICKY }
         live = this
+        DeskPet.sync(this)
         return START_STICKY
     }
 
     override fun onDestroy() {
         if (live === this) live = null
         scope.cancel()
+        DeskPet.sync(this)
         runCatching { stopForeground(STOP_FOREGROUND_REMOVE) }
         super.onDestroy()
     }
@@ -103,9 +105,9 @@ class PactKeeper : Service() {
         /** 约定变了：有就开着（已开着就换通知上的字），没有就关掉。 */
         /**
          * 要不要常驻（第 562 版起能自己开关，「我的 › 定时任务」）：prefs `keep-on` 是 "1" 就一直在，"0" 就不在；
-         * 没设过的照以前：有约定才在。
+         * 没设过的照以前：有约定才在。开着桌宠（DeskPet）时也一直在：她得浮在桌面上。
          */
-        fun wanted(ctx: Context): Boolean = hold || when (Prefs(ctx).string("keep-on")) { "1" -> true; "0" -> false; else -> Pacts.all.isNotEmpty() }
+        fun wanted(ctx: Context): Boolean = hold || DeskPet.wanted(ctx) || when (Prefs(ctx).string("keep-on")) { "1" -> true; "0" -> false; else -> Pacts.all.isNotEmpty() }
 
         /**
          * 临时得留在后台的事：这段时间不管开关都常驻，完了改回 false 再 [sync]。

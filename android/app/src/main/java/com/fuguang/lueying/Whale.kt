@@ -67,6 +67,8 @@ object Whale {
     var touch by mutableStateOf(true)
     /** 长按把她拎起来拖到别处 */
     var drag by mutableStateOf(true)
+    /** 桌宠：Amor 不在前台时浮在所有界面上（DeskPet.kt） */
+    var desk by mutableStateOf(false)
     /** 待机动作：0 关 / 1 少 / 2 适中 / 3 多 */
     var idle by mutableIntStateOf(2)
     var outfit by mutableStateOf(setOf<String>())
@@ -101,11 +103,15 @@ object Whale {
     /** 她真的站在主页上了：主页据此让位（标志上移、问候下移）；没出来时主页保持原样 */
     val onStage get() = active && ready && error.isEmpty()
 
+    /** 常驻服务先起来、界面还没开时（划掉后被系统拉起）也要读到设置和模型 */
+    fun ensure(ctx: Context) { if (!::app.isInitialized) init(ctx) }
+
     fun init(ctx: Context) {
+        if (::app.isInitialized) return
         app = ctx.applicationContext
         runCatching {
             val o = JSONObject(sp().getString("set", null) ?: "{}")
-            show = o.optBoolean("show", true); mood = o.optBoolean("mood", true); touch = o.optBoolean("touch", true); drag = o.optBoolean("drag", true)
+            show = o.optBoolean("show", true); mood = o.optBoolean("mood", true); touch = o.optBoolean("touch", true); drag = o.optBoolean("drag", true); desk = o.optBoolean("desk", false)
             idle = o.optInt("idle", 2); body = o.optDouble("body", 0.0).toFloat()
             outfit = o.optJSONArray("outfit")?.let { a -> (0 until a.length()).map { a.getString(it) }.toSet() } ?: emptySet()
         }
@@ -140,14 +146,21 @@ object Whale {
     private fun theme() = JSONObject().put("card", css(Skin.sheet)).put("ink", css(Skin.ink)).put("accent", css(Skin.accent))
 
     private fun setJson() = JSONObject()
-        .put("show", show).put("mood", mood).put("touch", touch).put("drag", drag).put("idle", idle)
+        .put("show", show).put("mood", mood).put("touch", touch).put("drag", drag).put("desk", desk).put("idle", idle)
         .put("outfit", JSONArray(outfit.toList())).put("body", body.toDouble()).put("theme", theme())
 
     /** 改了设置：存起来并推给页面 */
     fun save() {
         sp().edit().putString("set", setJson().toString()).apply()
         js("whale.set(${setJson()})")
+        DeskPet.set(setJson().toString())
     }
+
+    /** 桌宠那份页面要的设置 */
+    fun setJsonText() = setJson().toString()
+
+    /** 桌宠那份页面：小窗里放得下就行，贴图用标准画质，省显存（主页那份可能同时还在） */
+    fun deskUrl() = "https://$HOST/app/index.html?mask=2048&hd=0&desk=1"
 
     private fun js(s: String) {
         val w = web
@@ -295,7 +308,7 @@ object Whale {
         else -> "application/octet-stream"
     }
 
-    private fun serve(u: Uri): WebResourceResponse? {
+    internal fun serve(u: Uri): WebResourceResponse? {
         if (u.host != HOST) return null
         val p = u.path.orEmpty()
         val stream = runCatching {

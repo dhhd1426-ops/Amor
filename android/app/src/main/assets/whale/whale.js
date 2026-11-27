@@ -36,7 +36,10 @@ const LAY_DESC={A:'A 舞台：没说话时她站在正中间，问候在脚下�
   B:'B 同桌：她一直站在右侧，聊天在左边；适合折叠屏展开、平板这种宽屏（宽度 ≥ 780dp 时用，和项目页右栏的规则一致）。窄屏上会挤。',
   C:'C 探头：只露出头和肩膀，从输入框上方探出来；最不占地方、存在感最低，适合不想被打扰的时候。全身动作和尾巴基本看不到。'};
 let lay='A',chatOn=false,editing=false;
-try{const sv=JSON.parse(localStorage.getItem('fy-layout')||'null');if(sv)for(const k in sv)if(LAYOUT[k])Object.assign(LAYOUT[k],sv[k]);}catch(_){}
+/* 桌宠（DeskPet.kt）：单独一个小窗，只装她自己。不读不写主页存的位置；先放个大概，再按她实际占的范围缩放到窗口里（见底部 box 那段） */
+const DESK=Q.get('desk')==='1';
+if(DESK){LAYOUT.A.idle={zoom:.7,dx:0,dy:.05};LAYOUT.A.chat={zoom:.7,dx:0,dy:.05};document.documentElement.classList.add('desk');}
+else try{const sv=JSON.parse(localStorage.getItem('fy-layout')||'null');if(sv)for(const k in sv)if(LAYOUT[k])Object.assign(LAYOUT[k],sv[k]);}catch(_){}
 const S={...LAYOUT.A.idle},St={...S};
 /* 叠加到模型上的量（每帧逼近目标，可打断） */
 const P={mouth:0,smile:0,nod:0,lookX:0,lookY:0,eyeX:0,eyeY:0,brow:0,wide:0},T={...P};
@@ -471,7 +474,7 @@ function region(e){if(!model)return null;const r=stage.getBoundingClientRect(),s
 const ptrs=new Map();let dragging=false,pinch0=0,zoom0=1,lastTap=0;
 function cur(){return LAYOUT[lay][chatOn?'chat':'idle'];}
 function readout(){$('readout').textContent='当前：'+(chatOn?'聊天中':'未聊天')+' · 左右 '+S.dx.toFixed(2)+' · 上下 '+S.dy.toFixed(2)+' · 大小 '+S.zoom.toFixed(2);}
-function saveLayout(){Object.assign(cur(),{zoom:St.zoom,dx:St.dx,dy:St.dy});try{localStorage.setItem('fy-layout',JSON.stringify(LAYOUT));}catch(_){}readout();}
+function saveLayout(){if(DESK)return;Object.assign(cur(),{zoom:St.zoom,dx:St.dx,dy:St.dy});try{localStorage.setItem('fy-layout',JSON.stringify(LAYOUT));}catch(_){}readout();}
 function setEdit(on){editing=on;$('edit').classList.toggle('on',on);scr.classList.toggle('editing',on);$('bEdit').classList.toggle('on',on);
   if(on){stopRoutine();busy=Infinity;}else{busy=clock+1000;saveLayout();}}
 function editDown(e){ptrs.set(e.pointerId,{x:e.clientX,y:e.clientY});scr.setPointerCapture&&scr.setPointerCapture(e.pointerId);
@@ -557,7 +560,7 @@ function setEdit(on){editing=on;$('edit').classList.toggle('on',on);
 $('eDone').onclick=()=>setEdit(false);
 $('eReset').onclick=()=>{Object.assign(St,LAYOUT_DEF[chatOn?'chat':'idle']);Object.assign(S,St);};
 const OUTFIT=['pan','glasses','monocle','skirt','shoes','tail'];
-function applySet(o){o=o||{};Object.assign(SET,o);autoIdle=SET.idle>0;if(!autoIdle)stopRoutine();
+function applySet(o){o=o||{};Object.assign(SET,o);if(DESK){SET.drag=false;SET.show=true;}autoIdle=SET.idle>0;if(!autoIdle)stopRoutine();
   stage.style.transition='opacity .32s cubic-bezier(.2,0,0,1)';stage.style.opacity=SET.show?1:0;
   if(o.outfit)for(const k of OUTFIT){const on=o.outfit.indexOf(k)>=0;fxT[k]=on?1:0;fxUntil[k]=on?Infinity:0;}
   if('body' in o)bodyT=+o.body||0;
@@ -620,6 +623,8 @@ window.whale={
   /* 换装间：她站到上半屏 */
   dress(on){dressing=!!on;if(dressing){stopRoutine();after(500,()=>speak('换哪件呢～',false));}},
   pause(on){paused=!!on;syncRun();},
+  /* 桌宠：手指挪开变成拖窗口，这次按下不算点 */
+  cancel(){clearTimeout(pressTimer);if(downAt)downAt.used=1;if(petting){petting=0;petX=0;fxUntil.xx=clock;}if(pointerDown)pUp();},
   dance(){dance();},
   /* 她自己会说的固定台词：App 预先合成好存在手机上，说的时候不用等 */
   lines(){const a=new Set(LINES);Object.values(ROUTINES).forEach(r=>(r.lines||[]).forEach(x=>a.add(x)));return JSON.stringify([...a]);},
@@ -628,8 +633,14 @@ window.whale={
 };
 /* 把她占的范围（视口比例）报给 App：范围外的触摸交还给主页，范围内才归她 */
 let lastBox='';
+let fitN=0;
 setInterval(()=>{if(!model||document.hidden||ptrOn)return;if(model.alpha<.3){if(lastBox!=='0'){lastBox='0';bridge('box',{l:0,t:0,r:0,b:0});}return;}try{const b=model.getBounds(),W=app.screen.width,H=app.screen.height;
   const r=[b.x/W,b.y/H,(b.x+b.width)/W,(b.y+b.height)/H].map(v=>Math.round(clamp(v,0,1)*200)/200),k=r.join(',');
+  /* 桌宠：按她实际占的范围放进窗口：高不超过 8 成、宽不超过 9 成，左右居中、脚底贴近窗口底。几次就对齐，对齐了（或试够 12 次）报 fit 让 App 显出她 */
+  if(DESK&&fitN<12){const bw=r[2]-r[0],bh=r[3]-r[1];
+    if(bw>.02&&bh>.02){fitN++;const k=Math.min(.8/bh,.9/bw),ex=.5-(r[0]+r[2])/2,ey=.96-r[3];
+      if(Math.abs(k-1)<.03&&Math.abs(ex)<.02&&Math.abs(ey)<.02)fitN=99;else{St.zoom*=k;St.dx+=ex;St.dy+=ey;Object.assign(S,St);}
+      if(fitN>=12)bridge('fit',{});}}
   if(k!==lastBox){lastBox=k;bridge('box',{l:r[0],t:r[1],r:r[2],b:r[3]});}}catch(_){}},400);
 applySet({});
 })();

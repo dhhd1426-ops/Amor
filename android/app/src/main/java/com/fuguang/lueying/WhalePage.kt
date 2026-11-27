@@ -166,6 +166,7 @@ internal fun WhalePage(onBack: () -> Unit, onPlace: () -> Unit, onDress: () -> U
             }
         } else {
             Toggle("显示鲸鱼娘", "在主页陪你聊天", Whale.show) { Whale.show = it; Whale.save() }
+            DeskToggle()
             Toggle("情绪表情", "按她回复的内容换表情和动作", Whale.mood) { Whale.mood = it; Whale.save() }
             Toggle("点击互动", "点头、点身体、点尾巴都有反应", Whale.touch) { Whale.touch = it; Whale.save() }
             Toggle("长按拖动", "按住她不放，拖到想放的地方，松手就留在那儿", Whale.drag) { Whale.drag = it; Whale.save() }
@@ -202,6 +203,20 @@ internal fun WhalePage(onBack: () -> Unit, onPlace: () -> Unit, onDress: () -> U
             Page.muted, 11.5.sp, Modifier.padding(horizontal = 8.dp, vertical = 16.dp), lineHeight = 20.sp,
         )
     }
+}
+
+/** 桌宠：开了以后回到桌面、打开别的 App，她浮在屏幕上（DeskPet.kt）。没给悬浮窗权限时点开关直接去系统里给。 */
+@Composable
+private fun DeskToggle() {
+    val ctx = androidx.compose.ui.platform.LocalContext.current
+    val can = remember(Keep.ver) { DeskPet.canDraw(ctx) }
+    val sub = if (Whale.desk && !can) "还没允许「显示在其他应用上层」，点开关去允许" else "回到桌面、打开别的 App 时，她浮在屏幕上"
+    Toggle("桌宠", sub, Whale.desk && can) { on ->
+        if (on && !DeskPet.canDraw(ctx)) { Whale.desk = true; Whale.save(); DeskPet.askPermission(ctx); return@Toggle }
+        Whale.desk = on; Whale.save()
+        PactKeeper.sync(ctx); DeskPet.sync(ctx)
+    }
+    if (Whale.desk && DeskPet.log.isNotEmpty()) Column(Modifier.padding(top = 6.dp)) { DiagBox(DeskPet.diag(ctx)) }
 }
 
 @Composable

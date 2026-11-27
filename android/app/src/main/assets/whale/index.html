@@ -25,6 +25,8 @@ html,body{margin:0;height:100%;background:transparent;overflow:hidden;-webkit-ta
 .say .caret{display:inline-block;width:1.5px;height:.95em;margin-left:2px;vertical-align:-.12em;background:var(--accent);border-radius:1px}
 .load{position:absolute;left:0;right:0;top:13%;text-align:center;font:12.5px/1.6 sans-serif;color:#b4503c;white-space:pre-wrap;padding:0 24px;display:none}
 .load.err{display:block}
+/* 桌宠：气泡由 App 另开小窗画，这里不画 */
+.desk .sayw{display:none}
 .dance{position:absolute;z-index:1;opacity:0;pointer-events:none;transform:translateX(-50%) scale(.97);transition:opacity .18s cubic-bezier(.3,0,.8,.15),transform .18s cubic-bezier(.3,0,.8,.15)}
 .dance.on{opacity:1;transform:translateX(-50%);transition:opacity .32s cubic-bezier(.2,0,0,1),transform .32s cubic-bezier(.2,0,0,1)}
 .heart{position:absolute;z-index:2;pointer-events:none;color:#f47a9a;font-size:22px;font-style:normal;opacity:0;text-shadow:0 1px 6px rgba(244,122,154,.45);animation:heart 1.6s cubic-bezier(.05,.7,.1,1) forwards;will-change:transform,opacity}
